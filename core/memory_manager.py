@@ -11,15 +11,15 @@ import aiofiles
 
 # Import for vector embeddings and search
 try:
-    from sentence_transformers import SentenceTransformer
     import numpy as np
+    from sentence_transformers import SentenceTransformer
     import faiss
     VECTOR_SEARCH_AVAILABLE = True
-except ImportError:
-    print("[MemoryManager] Warning: sentence-transformers or faiss not available. Vector search will be disabled.")
+except ImportError as e:
+    print(f"[MemoryManager] Warning: Vector search dependencies not available ({str(e)}). Vector search will be disabled.")
     VECTOR_SEARCH_AVAILABLE = False
-    SentenceTransformer = None
     np = None
+    SentenceTransformer = None
     faiss = None
 
 from .schemas import MemorySegment, MemorySegmentContent
@@ -71,7 +71,7 @@ class MemoryManager:
         
         # Memory will be loaded in initialize_db_async
 
-    def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
+    def _generate_embedding(self, text: str) -> Optional[Any]:
         """Generate an embedding for the given text."""
         if not self.embedding_model:
             return None
