@@ -19,12 +19,9 @@ aiohttp>=3.9.1
 
 # Vector embeddings and search
 sentence-transformers>=2.2.2
-# faiss-gpu is used for GPU-accelerated vector search.
-# It was successfully installed on a Windows system using the conda-forge channel:
+faiss-cpu>=1.7.4  # CPU version of FAISS for vector search
+# For GPU support, install faiss-gpu instead:
 # conda install -c conda-forge faiss-gpu
-# If using pip or other environments, refer to the official Faiss documentation for installation instructions.
-# Alternatively, for CPU-only Faiss, you might consider:
-# faiss-cpu>=1.7.4 # (e.g., pip install faiss-cpu)
 numpy>=1.24.0
 
 # Tools
