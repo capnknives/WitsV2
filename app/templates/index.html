@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WITS-NEXUS v2 Web Interface</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>WITS-NEXUS v2</h1>
+
+        <div class="session-controls">
+            <label for="session-id-input">Session ID:</label>
+            <input type="text" id="session-id-input" readonly>
+            <button id="new-session-btn" title="Start New Session (clears current display & gets new ID)">New Session</button>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="agent-select">Active Agent:</label>
+                <select id="agent-select">
+                    </select>
+            </div>
+            <div class="control-group">
+                <label for="model-select">LLM Model (for current agent):</label>
+                <select id="model-select">
+                    </select>
+            </div>
+            <div class="control-group">
+                <label for="temperature-slider">Temperature:</label>
+                <input type="range" id="temperature-slider" min="0" max="2" step="0.1" value="0.7">
+                <span id="temperature-value">0.7</span>
+            </div>
+            <button id="update-params-btn">Apply LLM Params</button>
+        </div>
+
+        <div class="chat-area">
+            <div id="conversation" class="conversation-log">
+                </div>
+            <div id="thinking-process" class="thinking-log">
+                <h3>Agent Thinking Process:</h3>
+                </div>
+        </div>
+
+        <div class="input-area">
+            <input type="text" id="goal-input" placeholder="Enter your goal...">
+            <button id="send-goal-btn">Send</button>
+        </div>
+
+        <div class="memory-controls">
+            <h3>Memory (Session: <span id="memory-session-id-display"></span>)</h3>
+            <input type="text" id="memory-search-input" placeholder="Search memory...">
+            <button id="search-memory-btn">Search</button>
+            <button id="clear-memory-btn">Clear Session Memory</button>
+            <div id="memory-search-results" class="memory-results"></div>
+        </div>
+
+    </div>
+    <script src="{{ url_for('static', path='/script.js') }}"></script>
+</body>
+</html>

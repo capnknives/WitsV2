@@ -1,0 +1,50 @@
+# WITS-NEXUS v2 Configuration Example
+# Copy this file to config.yaml and customize it with your settings
+
+# General Settings
+app_name: "WITS-NEXUS v2"
+internet_access: true
+allow_code_execution: false  # Enable with extreme caution
+ethics_enabled: true
+output_directory: "output"   # Relative to project root
+
+# Voice Input Settings (Optional)
+voice_input: false
+voice_input_duration: 5
+whisper_model: "base"
+whisper_fp16: false
+
+# Model Configurations
+models:
+  default: "llama3"
+  orchestrator: "openhermes:latest"  # For the main orchestrator agent
+  scribe: "llama3"
+  analyst: "openhermes:latest"
+  engineer: "codellama:7b"
+  researcher: "llama3"
+
+# Router Configuration
+router:
+  fallback_agent: "orchestrator_agent"
+
+# Web Interface Settings
+web_interface:
+  enabled: true
+  port: 5001
+  host: "0.0.0.0"
+  debug: true
+  enable_file_uploads: true
+  max_file_size: 10  # In MB
+
+# Memory Manager Settings
+memory_manager:
+  vector_model: "all-MiniLM-L6-v2"
+  memory_file_path: "data/memory/wits_memory.json"
+
+# Tool Settings
+file_tool_base_path: "data/user_files"
+orchestrator_max_iterations: 10
+
+# LLM Settings
+ollama_url: "http://localhost:11434"
+ollama_request_timeout: 120

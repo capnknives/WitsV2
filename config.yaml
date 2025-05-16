@@ -1,0 +1,58 @@
+# config.yaml
+# WITS-NEXUS v2 Configuration
+
+# General Settings
+internet_access: true
+allow_code_execution: false # Default to false for safety
+ethics_enabled: true
+output_directory: "output" # Relative to project root
+
+# Voice Input Settings (Optional)
+voice_input: false
+voice_input_duration: 5 # seconds
+whisper_model: "base"
+whisper_fp16: false
+
+# Ollama Model Configurations
+models:
+  default: "llama3" # General purpose default
+  orchestrator: "openhermes:latest" # For the main orchestrator agent
+  scribe: "llama3"
+  analyst: "openhermes:latest"
+  engineer: "codellama:7b"
+  researcher: "llama3"
+  # Add other specialized agent models if needed
+
+# Router Configuration (Orchestrator is usually the primary handler)
+router:
+  fallback_agent: "orchestrator_agent" # Key for your orchestrator agent instance
+
+# Web Interface Settings (Flask/FastAPI)
+web_interface:
+  enabled: true # Set to true to run the web app by default with run.py
+  port: 5001
+  host: "0.0.0.0"
+  debug: true # Flask/FastAPI debug mode
+  enable_file_uploads: true
+  max_file_size: 10 # In MB
+
+  # ... your existing config ...
+
+ollama_url: "http://localhost:11434"
+llm_model_name: "llama3:latest" # Default model
+embedding_model_name: "all-MiniLM-L6-v2"
+vector_db_path: "data/vector_db"
+ollama_request_timeout: 120
+max_iterations: 10 # Increased for web interaction
+file_tool_base_path: "data/user_files" # Example base path for FileTool
+
+# Orchestrator Specific Settings
+orchestrator_max_iterations: 15 # Max steps in a ReAct loop for a single goal
+
+# Any other core component settings
+# memory_manager:
+#   vector_model: "all-MiniLM-L6-v2" # If using vector memory
+
+# ollama_options: # Global options for ollama.generate, if any
+#   temperature: 0.7
+#   num_ctx: 4096

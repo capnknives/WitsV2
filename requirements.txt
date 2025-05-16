@@ -1,0 +1,47 @@
+# Core
+pyyaml>=6.0
+pydantic>=2.0
+typing-extensions>=4.0.0
+
+# Web Framework
+fastapi>=0.100.0
+uvicorn>=0.22.0
+jinja2>=3.1.2
+python-multipart>=0.0.6
+aiofiles>=23.1.0  # For static file serving
+
+# LLM Interface
+ollama>=0.1.0
+
+# Async
+asyncio>=3.4.3
+aiohttp>=3.9.1
+
+# Vector embeddings and search
+sentence-transformers>=2.2.2
+# faiss-gpu is used for GPU-accelerated vector search.
+# It was successfully installed on a Windows system using the conda-forge channel:
+# conda install -c conda-forge faiss-gpu
+# If using pip or other environments, refer to the official Faiss documentation for installation instructions.
+# Alternatively, for CPU-only Faiss, you might consider:
+# faiss-cpu>=1.7.4 # (e.g., pip install faiss-cpu)
+numpy>=1.24.0
+
+# Tools
+requests>=2.31.0
+pytz>=2023.3
+python-dateutil>=2.8.2
+beautifulsoup4>=4.12.2  # For web scraping
+matplotlib>=3.7.2  # For visualization
+reportlab>=4.0.4  # For PDF generation
+
+# Web App
+fastapi>=0.104.1
+uvicorn[standard]>=0.23.2
+python-dotenv>=0.21.0
+jinja2>=3.1.4 # Using a slightly more recent version for general compatibility
+websockets>=12.0 # For potential real-time streaming
+
+# Optional voice input
+# openai-whisper>=20231117
+# sounddevice>=0.4.6

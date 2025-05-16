@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.vs/
+*.sublime-workspace
+*.sublime-project
+
+# Sensitive Data and Runtime Files
+data/memory/           # Memory files containing conversation history
+data/user_files/       # User uploaded/generated files
+output/               # Generated output files
+config.yaml          # Local configuration file that might contain API keys
+*.env
+.env*
+.env.local
+.env.*.local
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+faiss/*.index        # FAISS index files
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Documentation
+docs/_build/
+site/
+
+# FAISS build artifacts
+faiss/build/
+faiss/*.so
+faiss/*.dylib
+faiss/*.dll

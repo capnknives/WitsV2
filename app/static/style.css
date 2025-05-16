@@ -1,0 +1,176 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background-color: #f4f4f4;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    padding-top: 20px;
+}
+
+.container {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    width: 90%;
+    max-width: 800px;
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+}
+
+.controls {
+    margin-bottom: 20px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+.controls label {
+    margin-right: 5px;
+}
+.controls select, .controls input[type="range"], .controls button {
+    margin-right: 15px;
+    padding: 5px;
+}
+
+
+.chat-area {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    height: 400px; /* Fixed height for chat areas */
+}
+
+.conversation-log, .thinking-log {
+    flex: 1;
+    border: 1px solid #ddd;
+    padding: 10px;
+    overflow-y: auto;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    height: 100%; /* Fill the chat-area height */
+}
+
+.thinking-log h3 {
+    margin-top: 0;
+    font-size: 1em;
+    color: #555;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+.log-message {
+    margin-bottom: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    line-height: 1.4;
+}
+
+.log-message strong {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 0.9em;
+    color: #555;
+}
+.log-message pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background-color: #efefef;
+    padding: 5px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+
+.log-user_goal { background-color: #e7f3ff; border-left: 3px solid #007bff; }
+.log-final_answer { background-color: #d4edda; border-left: 3px solid #28a745; }
+.log-thought { background-color: #fff3cd; border-left: 3px solid #ffc107; font-style: italic; }
+.log-action { background-color: #f8d7da; border-left: 3px solid #dc3545; }
+.log-observation { background-color: #e2e3e5; border-left: 3px solid #6c757d; }
+.log-error { background-color: #f8d7da; border-left: 3px solid #dc3545; color: #721c24; }
+.log-info, .log-iteration_update, .log-prompt_context, .log-max_iterations_reached {
+    background-color: #d1ecf1;
+    border-left: 3px solid #0c5460;
+    font-size: 0.85em;
+    color: #0c5460;
+}
+
+
+.input-area {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.input-area input[type="text"] {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px 0 0 4px;
+}
+
+.input-area button {
+    padding: 10px 15px;
+    border: none;
+    background-color: #007bff;
+    color: white;
+    border-radius: 0 4px 4px 0;
+    cursor: pointer;
+}
+
+.input-area button:hover {
+    background-color: #0056b3;
+}
+
+.memory-controls {
+    margin-top: 20px;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+.memory-controls h3 {
+    margin-top: 0;
+}
+.memory-controls input[type="text"] {
+    padding: 8px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+.memory-controls button {
+    padding: 8px 12px;
+    margin-right: 5px;
+    border: none;
+    background-color: #6c757d;
+    color: white;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.memory-controls button:hover {
+    background-color: #545b62;
+}
+.memory-results {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed #eee;
+    min-height: 50px;
+    background-color: #fff;
+    font-size: 0.9em;
+}
+.memory-results ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+.memory-results li {
+    padding: 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.memory-results li:last-child {
+    border-bottom: none;
+}
