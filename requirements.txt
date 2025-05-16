@@ -19,10 +19,16 @@ aiohttp>=3.9.1
 
 # Vector embeddings and search
 sentence-transformers>=2.2.2
-faiss-cpu>=1.7.4  # CPU version of FAISS for vector search
-# For GPU support, install faiss-gpu instead:
-# conda install -c conda-forge faiss-gpu
 numpy>=1.24.0
+
+# IMPORTANT: FAISS Installation
+# For CPU-only support (default):
+#   pip install faiss-cpu>=1.7.4
+# For GPU support (recommended if you have a CUDA GPU):
+#   1. Install CUDA Toolkit from NVIDIA's website
+#   2. Run: conda install -c conda-forge faiss-gpu
+#
+# DO NOT have both faiss-cpu and faiss-gpu installed at the same time
 
 # Tools
 requests>=2.31.0
