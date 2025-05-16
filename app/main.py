@@ -260,9 +260,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import and include debug routes
+# Import and include routes
 from app.routes.debug_routes import debug_router
+from app.routes.file_routes import file_router
+
 app.include_router(debug_router)
+app.include_router(file_router)
 
 
 # --- API Routes (Ensure they use the locally defined helper functions) ---

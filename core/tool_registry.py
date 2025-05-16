@@ -31,10 +31,9 @@ class ToolRegistry:
         
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor("ToolRegistry")
-        self.logger.info("Tool Registry initialized")
         self.perf_monitor = PerformanceMonitor('ToolRegistry')
         
-        self.logger.info("Tool Registry initialized")    @log_execution_time(logging.getLogger('WITS.ToolRegistry'))
+        self.logger.info("Tool Registry initialized")
     def register_tool(self, tool_instance: BaseTool):
         """
         Register a tool in the registry.
