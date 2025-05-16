@@ -6,8 +6,11 @@ import os
 import uuid
 import time
 import re
-from pydantic import BaseModel
+import logging
+from pydantic import BaseModel, Field
 import aiofiles
+
+from .debug_utils import log_execution_time, log_async_execution_time, DebugInfo, log_debug_info, PerformanceMonitor
 
 # Import for vector embeddings and search
 try:
@@ -16,13 +19,25 @@ try:
     import faiss
     VECTOR_SEARCH_AVAILABLE = True
 except ImportError as e:
-    print(f"[MemoryManager] Warning: Vector search dependencies not available ({str(e)}). Vector search will be disabled.")
+    logging.warning(f"Vector search dependencies not available ({str(e)}). Vector search will be disabled.")
     VECTOR_SEARCH_AVAILABLE = False
     np = None
     SentenceTransformer = None
     faiss = None
 
 from .schemas import MemorySegment, MemorySegmentContent
+
+# Debug model for memory operations
+class MemoryDebugInfo(BaseModel):
+    """Debug information specific to memory operations."""
+    operation_type: str = Field(..., description="Type of memory operation (add, search, etc.)")
+    segment_count: int = Field(0, description="Number of segments involved")
+    vector_search_used: bool = Field(False, description="Whether vector search was used")
+    query_length: Optional[int] = Field(None, description="Length of search query if applicable")
+    match_count: Optional[int] = Field(None, description="Number of matches found if applicable")
+    embedding_time_ms: Optional[float] = Field(None, description="Time taken for embedding generation")
+    search_time_ms: Optional[float] = Field(None, description="Time taken for search operation")
+    details: Dict[str, Any] = Field(default_factory=dict, description="Additional operation details")
 
 class MemoryManager:
     """
@@ -32,6 +47,7 @@ class MemoryManager:
     - Supports goal tracking and management
     - Vector-based semantic search
     - Memory pruning and persistence
+    - Performance monitoring and debugging
     """
     
     def __init__(self, config: Any, memory_file_path: Optional[str] = None):
@@ -46,6 +62,18 @@ class MemoryManager:
         self.completed_goals: List[Dict[str, Any]] = []
         self.last_agent_output: Dict[str, str] = {}
         self.last_agent_name: Optional[str] = None
+        
+        # Set up logging
+        self.logger = logging.getLogger('WITS.MemoryManager')
+        
+        # Debug configuration
+        self.debug_enabled = config.debug.enabled if hasattr(config, 'debug') else False
+        if self.debug_enabled and hasattr(config.debug, 'components'):
+            self.debug_config = config.debug.components.memory_manager
+        else:
+            self.debug_config = None
+            
+        self.performance_monitor = PerformanceMonitor("MemoryManager")
         
         # FAISS and embedding setup
         self.vector_model_name = self.config.memory_manager.vector_model
@@ -188,10 +216,11 @@ class MemoryManager:
         
         return "\n".join(formatted_lines)
 
+    @log_execution_time(logging.getLogger('WITS.MemoryManager'))
     def semantic_search(self, query: str, limit: int = 5, 
                        segment_type_filter: Optional[str] = None) -> List[MemorySegment]:
         """
-        Search for semantically similar segments.
+        Search for semantically similar segments with performance tracking.
         
         Args:
             query: The search query text
@@ -201,23 +230,74 @@ class MemoryManager:
         Returns:
             List[MemorySegment]: List of relevant memory segments
         """
+        start_time = time.time()
+        search_debug = MemoryDebugInfo(
+            operation_type="semantic_search",
+            segment_count=len(self.segments),
+            vector_search_used=False,
+            query_length=len(query)
+        )
+        
         if not self.embedding_model or not self.index or self.index.ntotal == 0:
-            print("[MemoryManager] Semantic search unavailable (no model, empty index)")
+            self.logger.warning("Semantic search unavailable (no model, empty index)")
+            
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="MemoryManager",
+                    action="semantic_search_failed",
+                    details={
+                        "reason": "vector search unavailable",
+                        "has_model": self.embedding_model is not None,
+                        "has_index": self.index is not None,
+                        "index_size": self.index.ntotal if self.index else 0
+                    },
+                    duration_ms=0.0,
+                    success=False,
+                    error="Vector search components not available"
+                )
+                log_debug_info(self.logger, debug_info)
             return []
         
-        # Generate query embedding
+        # Track embedding generation time
+        embed_start = time.time()
         query_embedding = self._generate_embedding(query)
+        embed_time = (time.time() - embed_start) * 1000  # ms
+        search_debug.embedding_time_ms = embed_time
+        
         if query_embedding is None:
+            self.logger.warning("Query embedding generation failed")
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="MemoryManager",
+                    action="semantic_search_failed",
+                    details={"reason": "embedding generation failed", "query": query[:100]},
+                    duration_ms=(time.time() - start_time) * 1000,
+                    success=False,
+                    error="Failed to generate embedding"
+                )
+                log_debug_info(self.logger, debug_info)
             return []
         
-        # Search in FAISS index
+        # Track search time
+        search_start = time.time()
         k_search = min(limit * 3, self.index.ntotal)  # Search for more initially to allow filtering
         if k_search == 0:
             return []
         
-        distances, faiss_indices = self.index.search(query_embedding.reshape(1, -1), k_search)
+        # Update debug info - we're actually using vector search now
+        search_debug.vector_search_used = True
         
+        # Perform the search
+        distances, faiss_indices = self.index.search(query_embedding.reshape(1, -1), k_search)
+        search_time = (time.time() - search_start) * 1000  # ms
+        search_debug.search_time_ms = search_time
+        
+        # Process results
         results: List[MemorySegment] = []
+        matched_segments = set()
+        
         for i, faiss_idx in enumerate(faiss_indices[0]):
             if faiss_idx < 0 or faiss_idx >= len(self.faiss_idx_to_id):
                 continue
@@ -230,18 +310,65 @@ class MemoryManager:
                     # Apply type filter if specified
                     if segment_type_filter is None or segment.type == segment_type_filter:
                         # Store distance as metadata for debugging/visualization
+                        if not hasattr(segment, 'metadata'):
+                            segment.metadata = {}
                         segment.metadata["search_distance"] = float(distances[0][i])
                         results.append(segment)
+                        matched_segments.add(segment_id)
                     break
             
             if len(results) >= limit:
                 break
+                
+        # Log debug info
+        search_debug.match_count = len(results)
+        search_debug.details = {
+            "filter_applied": segment_type_filter is not None,
+            "filter_type": segment_type_filter,
+            "requested_limit": limit,
+            "search_k": k_search
+        }
         
+        total_time = (time.time() - start_time) * 1000
+        
+        # Log complete debug info
+        if self.debug_enabled and self.debug_config and getattr(self.debug_config, 'log_searches', False):
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="MemoryManager",
+                action="semantic_search",
+                details={
+                    "query": query[:100] + "..." if len(query) > 100 else query,
+                    "segment_type_filter": segment_type_filter,
+                    "limit": limit,
+                    "found_count": len(results),
+                    "embedding_time_ms": search_debug.embedding_time_ms,
+                    "search_time_ms": search_debug.search_time_ms,
+                    "total_time_ms": total_time
+                },
+                duration_ms=total_time,
+                success=True
+            )
+            log_debug_info(self.logger, debug_info)
+            
+            # Log performance data if enabled
+            if getattr(self.debug_config, 'log_performance', False):
+                self.logger.debug(
+                    f"Performance: semantic_search - "
+                    f"Embedding: {search_debug.embedding_time_ms:.2f}ms, "
+                    f"Search: {search_debug.search_time_ms:.2f}ms, "
+                    f"Total: {total_time:.2f}ms, "
+                    f"Results: {len(results)}/{k_search}"
+                )
+                
         return results
 
+    @log_execution_time(logging.getLogger('WITS.MemoryManager'))
     def remember_agent_output(self, agent_name: str, output: str) -> Optional[str]:
         """Store the most recent output from a specific agent."""
         if not agent_name:
+            if self.debug_enabled:
+                self.logger.warning("Attempted to remember agent output with no agent name")
             return None
         
         agent_name_lower = agent_name.lower()

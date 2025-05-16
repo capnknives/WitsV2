@@ -1,7 +1,13 @@
 # tools/base_tool.py
 from abc import ABC, abstractmethod
+import logging
+import time
+import traceback
+from datetime import datetime
 from typing import Any, ClassVar, Dict, Type, Optional
 from pydantic import BaseModel, create_model
+
+from core.debug_utils import DebugInfo, log_debug_info
 
 class BaseTool(ABC):
     """
@@ -58,6 +64,88 @@ class BaseTool(ABC):
 
 class ToolException(Exception):
     """Exception raised when a tool encounters an error during execution."""
+    pass
+    
+class BaseToolWithDebug(BaseTool):
+    """Extended base tool with debug capabilities."""
+    
+    def __init__(self, config=None):
+        """Initialize with logger and debug configuration."""
+        # Note: ABC doesn't have __init__ to call super() for
+        self.logger = logging.getLogger(f'WITS.Tools.{self.name}')
+        
+        # Set debug configuration
+        self.debug_enabled = False
+        self.debug_config = None
+        
+        if config and hasattr(config, 'debug'):
+            self.debug_enabled = config.debug.enabled
+            if hasattr(config.debug, 'components') and hasattr(config.debug.components, 'tools'):
+                self.debug_config = config.debug.components.tools
+        
+    async def execute_with_debug(self, args: BaseModel) -> Any:
+        """Execute the tool with debug tracking."""
+        start_time = time.time()
+        
+        try:
+            self.logger.debug(f"Executing tool with args: {args.model_dump_json()}")
+            
+            # Execute the actual tool functionality
+            result = await self.execute(args)
+            
+            execution_time = (time.time() - start_time) * 1000  # ms
+            
+            # Log success with debug info
+            if self.debug_enabled:
+                # Create debug info for successful execution
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component=f"Tool.{self.name}",
+                    action="execute",
+                    details={
+                        "args": args.model_dump(),
+                        "result_type": type(result).__name__
+                    },
+                    duration_ms=execution_time,
+                    success=True
+                )
+                log_debug_info(self.logger, debug_info)
+                
+                # Detailed logging of args and results if enabled
+                if self.debug_config and self.debug_config.get('log_args', False):
+                    self.logger.debug(f"Tool args: {args.model_dump_json()}")
+                if self.debug_config and self.debug_config.get('log_results', False):
+                    result_str = str(result)
+                    if len(result_str) > 500:
+                        result_str = result_str[:497] + "..."
+                    self.logger.debug(f"Tool result: {result_str}")
+                
+            return result
+            
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            error_msg = f"Tool execution error: {str(e)}"
+            self.logger.error(error_msg)
+            
+            # Log failure with debug info
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component=f"Tool.{self.name}",
+                    action="execute_failed",
+                    details={
+                        "args": args.model_dump(),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    },
+                    duration_ms=execution_time,
+                    success=False,
+                    error=str(e)
+                )
+                log_debug_info(self.logger, debug_info)
+            
+            # Re-raise as ToolException
+            raise ToolException(error_msg) from e
     
     def __init__(self, tool_name: str, message: str, details: Optional[Dict[str, Any]] = None):
         """

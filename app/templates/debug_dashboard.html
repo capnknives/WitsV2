@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WITS-NEXUS v2 Debug Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .dashboard {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 20px;
+        }
+        
+        .card {
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        
+        .metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .metric-item {
+            background-color: white;
+            border-radius: 5px;
+            padding: 10px;
+            min-width: 120px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        table th {
+            background-color: #f0f0f0;
+        }
+        
+        .tab-container {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+        }
+        
+        .tab.active {
+            border-bottom: 2px solid #3498db;
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        .log-entry {
+            border-bottom: 1px solid #eee;
+            padding: 8px 0;
+        }
+        
+        .log-entry.error {
+            color: #e74c3c;
+            background-color: #ffeeee;
+        }
+        
+        .log-entry.warning {
+            color: #f39c12;
+            background-color: #fff8e1;
+        }
+        
+        .refresh-button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .refresh-button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>WITS-NEXUS v2 Debug Dashboard</h1>
+        <div>
+            <button id="refresh-data" class="refresh-button">Refresh Data</button>
+            <span id="last-refreshed">Last refreshed: Never</span>
+        </div>
+    </header>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>System Overview</h3>
+            <div class="metrics">
+                <div class="metric-item">
+                    <div class="metric-value" id="active-sessions">0</div>
+                    <div class="metric-label">Active Sessions</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value" id="llm-calls">0</div>
+                    <div class="metric-label">LLM Calls</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value" id="tool-calls">0</div>
+                    <div class="metric-label">Tool Calls</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value" id="avg-response-time">0ms</div>
+                    <div class="metric-label">Avg Response Time</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value" id="memory-segments">0</div>
+                    <div class="metric-label">Memory Segments</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Performance Monitoring</h3>
+            <div class="tab-container">
+                <div class="tab active" data-tab="llm">LLM Interface</div>
+                <div class="tab" data-tab="memory">Memory Manager</div>
+                <div class="tab" data-tab="tools">Tools</div>
+                <div class="tab" data-tab="agents">Agents</div>
+            </div>
+            
+            <div id="llm-tab" class="tab-content active">
+                <div class="chart-container" id="llm-chart"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Model</th>
+                            <th>Action</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="llm-table-body">
+                        <!-- LLM call data will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="memory-tab" class="tab-content">
+                <div class="chart-container" id="memory-chart"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Action</th>
+                            <th>Segments</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="memory-table-body">
+                        <!-- Memory operation data will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="tools-tab" class="tab-content">
+                <div class="chart-container" id="tools-chart"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Tool</th>
+                            <th>Action</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tools-table-body">
+                        <!-- Tool execution data will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="agents-tab" class="tab-content">
+                <div class="chart-container" id="agents-chart"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Agent</th>
+                            <th>Action</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agents-table-body">
+                        <!-- Agent activity data will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>System Logs</h3>
+            <div class="tab-container">
+                <div class="tab active" data-tab="all-logs">All Logs</div>
+                <div class="tab" data-tab="error-logs">Errors</div>
+                <div class="tab" data-tab="warning-logs">Warnings</div>
+            </div>
+            
+            <div id="all-logs-tab" class="tab-content active">
+                <div id="all-logs-container" style="max-height: 300px; overflow-y: auto;">
+                    <!-- All logs will be inserted here -->
+                </div>
+            </div>
+            
+            <div id="error-logs-tab" class="tab-content">
+                <div id="error-logs-container" style="max-height: 300px; overflow-y: auto;">
+                    <!-- Error logs will be inserted here -->
+                </div>
+            </div>
+            
+            <div id="warning-logs-tab" class="tab-content">
+                <div id="warning-logs-container" style="max-height: 300px; overflow-y: auto;">
+                    <!-- Warning logs will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Tab switching functionality
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // Remove active class from all tabs
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    // Add active class to clicked tab
+                    this.classList.add('active');
+                    
+                    // Hide all tab content
+                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                    
+                    // Show corresponding tab content
+                    const tabId = this.getAttribute('data-tab');
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                });
+            });
+            
+            // Refresh button functionality
+            document.getElementById('refresh-data').addEventListener('click', fetchDebugData);
+            
+            // Initialize with data
+            fetchDebugData();
+            
+            // Set up auto-refresh every 30 seconds
+            setInterval(fetchDebugData, 30000);
+            
+            function fetchDebugData() {
+                // Update refresh time
+                const now = new Date();
+                document.getElementById('last-refreshed').textContent = `Last refreshed: ${now.toLocaleTimeString()}`;
+                
+                // Make API calls to fetch debug data
+                fetch('/api/debug/metrics')
+                    .then(response => response.json())
+                    .then(data => updateMetrics(data))
+                    .catch(error => console.error('Error fetching metrics:', error));
+                
+                fetch('/api/debug/performance')
+                    .then(response => response.json())
+                    .then(data => updatePerformanceData(data))
+                    .catch(error => console.error('Error fetching performance data:', error));
+                
+                fetch('/api/debug/logs')
+                    .then(response => response.json())
+                    .then(data => updateLogs(data))
+                    .catch(error => console.error('Error fetching logs:', error));
+            }
+            
+            function updateMetrics(data) {
+                document.getElementById('active-sessions').textContent = data.active_sessions || 0;
+                document.getElementById('llm-calls').textContent = data.llm_calls || 0;
+                document.getElementById('tool-calls').textContent = data.tool_calls || 0;
+                document.getElementById('avg-response-time').textContent = `${data.avg_response_time || 0}ms`;
+                document.getElementById('memory-segments').textContent = data.memory_segments || 0;
+            }
+            
+            function updatePerformanceData(data) {
+                // Update charts and tables with performance data
+                updateLLMPerformance(data.llm_interface || []);
+                updateMemoryPerformance(data.memory_manager || []);
+                updateToolsPerformance(data.tools || []);
+                updateAgentsPerformance(data.agents || []);
+            }
+            
+            function updateLogs(data) {
+                const allLogsContainer = document.getElementById('all-logs-container');
+                const errorLogsContainer = document.getElementById('error-logs-container');
+                const warningLogsContainer = document.getElementById('warning-logs-container');
+                
+                // Clear existing logs
+                allLogsContainer.innerHTML = '';
+                errorLogsContainer.innerHTML = '';
+                warningLogsContainer.innerHTML = '';
+                
+                // Add new logs
+                data.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = `log-entry ${log.level.toLowerCase()}`;
+                    logEntry.innerHTML = `<strong>${log.timestamp}</strong> [${log.level}] ${log.component}: ${log.message}`;
+                    
+                    // Add to all logs
+                    allLogsContainer.appendChild(logEntry.cloneNode(true));
+                    
+                    // Add to specific log tabs
+                    if (log.level === 'ERROR') {
+                        errorLogsContainer.appendChild(logEntry.cloneNode(true));
+                    } else if (log.level === 'WARNING') {
+                        warningLogsContainer.appendChild(logEntry.cloneNode(true));
+                    }
+                });
+            }
+            
+            // Helper functions for performance data visualization
+            function updateLLMPerformance(data) {
+                const tableBody = document.getElementById('llm-table-body');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatTimestamp(item.timestamp)}</td>
+                        <td>${item.details.model || 'N/A'}</td>
+                        <td>${item.action}</td>
+                        <td>${item.duration_ms.toFixed(2)}ms</td>
+                        <td>${item.success ? '✅' : '❌'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                // Update chart
+                updateChart('llm-chart', data, 'LLM Performance');
+            }
+            
+            function updateMemoryPerformance(data) {
+                const tableBody = document.getElementById('memory-table-body');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatTimestamp(item.timestamp)}</td>
+                        <td>${item.action}</td>
+                        <td>${item.details.segment_count || 0}</td>
+                        <td>${item.duration_ms.toFixed(2)}ms</td>
+                        <td>${item.success ? '✅' : '❌'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                // Update chart
+                updateChart('memory-chart', data, 'Memory Manager Performance');
+            }
+            
+            function updateToolsPerformance(data) {
+                const tableBody = document.getElementById('tools-table-body');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatTimestamp(item.timestamp)}</td>
+                        <td>${item.component.replace('Tool.', '')}</td>
+                        <td>${item.action}</td>
+                        <td>${item.duration_ms.toFixed(2)}ms</td>
+                        <td>${item.success ? '✅' : '❌'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                // Update chart
+                updateChart('tools-chart', data, 'Tools Performance');
+            }
+            
+            function updateAgentsPerformance(data) {
+                const tableBody = document.getElementById('agents-table-body');
+                tableBody.innerHTML = '';
+                
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatTimestamp(item.timestamp)}</td>
+                        <td>${item.component}</td>
+                        <td>${item.action}</td>
+                        <td>${item.duration_ms.toFixed(2)}ms</td>
+                        <td>${item.success ? '✅' : '❌'}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                // Update chart
+                updateChart('agents-chart', data, 'Agents Performance');
+            }
+            
+            function updateChart(chartId, data, label) {
+                const chartCanvas = document.getElementById(chartId);
+                
+                // Extract data points
+                const labels = data.slice(-20).map(item => formatTimestamp(item.timestamp));
+                const durations = data.slice(-20).map(item => item.duration_ms);
+                
+                // Check if chart already exists
+                if (window[chartId]) {
+                    window[chartId].data.labels = labels;
+                    window[chartId].data.datasets[0].data = durations;
+                    window[chartId].update();
+                    return;
+                }
+                
+                // Create new chart
+                window[chartId] = new Chart(chartCanvas, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `${label} (ms)`,
+                            data: durations,
+                            backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+            
+            function formatTimestamp(timestamp) {
+                return new Date(timestamp).toLocaleTimeString();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 # core/tool_registry.py
 from typing import List, Dict, Any, Type, Optional
 import logging
+import time
 from datetime import datetime
 
 from tools.base_tool import BaseTool
@@ -29,6 +30,8 @@ class ToolRegistry:
             self.debug_config = {}
         
         # Performance monitoring
+        self.performance_monitor = PerformanceMonitor("ToolRegistry")
+        self.logger.info("Tool Registry initialized")
         self.perf_monitor = PerformanceMonitor('ToolRegistry')
         
         self.logger.info("Tool Registry initialized")    @log_execution_time(logging.getLogger('WITS.ToolRegistry'))

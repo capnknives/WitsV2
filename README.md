@@ -14,6 +14,7 @@ WITSAI is an advanced AI system built on the WITS-NEXUS framework, designed to p
 - ⚡ **MCP Architecture** - Model-Chosen Parameters for intelligent tool usage
 - 🔍 **Semantic Search** - Advanced context retrieval using embeddings
 - 📝 **Structured Data** - Pydantic-based validation throughout
+- 🔎 **Powerful Debugging** - Comprehensive logging, performance monitoring, and debug visualization
 
 ## Components
 
@@ -156,6 +157,35 @@ The system is configured through `config.yaml`. A template is provided in `confi
 - Memory management settings
 - Tool configurations
 - Security settings
+
+## Debugging System
+
+WITS-NEXUS v2 comes with a comprehensive debugging system that provides:
+
+- **Structured Logging**: Hierarchical logging with configurable levels
+- **Performance Monitoring**: Time tracking for critical operations
+- **Debug Visualization**: Metrics display in web interface
+- **Component-Specific Debug Options**: Fine-grained control via config
+- **Debug Information Models**: Structured data for consistent debugging
+
+The debug system can be configured in `config.yaml`:
+```yaml
+debug:
+  enabled: true
+  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  console_logging_enabled: true
+  file_logging_enabled: true
+  log_directory: "logs"
+  performance_monitoring: true
+  components:
+    llm_interface:
+      log_prompts: true
+      log_responses: true
+    memory_manager:
+      log_embeddings: true
+      log_searches: true
+    # Other component-specific settings...
+```
 
 ## Security Considerations
 
