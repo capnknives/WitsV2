@@ -54,19 +54,48 @@ WITS-NEXUS v2 uses a structured approach where:
     ```
 
 3.  **Install Faiss for Vector Search**:
-    Faiss is crucial for the vector search capabilities.
-    * For **GPU support** (recommended for performance if you have an NVIDIA GPU and CUDA installed):
-        It was successfully installed on a Windows system using `conda` from the `conda-forge` channel. Use the following command:
+    Faiss is crucial for the vector search capabilities. We strongly recommend using GPU support for better performance.
+
+    * For **GPU support** (recommended):
+        1. Install CUDA Toolkit from NVIDIA's website if not already installed
+        2. Create and activate a dedicated conda environment with Python 3.10:
+            ```bash
+            conda create -n wits python=3.10
+            conda activate wits
+            ```
+        3. Install faiss-gpu using conda-forge:
+            ```bash
+            conda install -c conda-forge faiss-gpu
+            ```
+        4. Install other project dependencies:
+            ```bash
+            pip install -r requirements.txt
+            ```
+        5. Verify GPU support:
+            ```python
+            python -c "import faiss; print('GPU support available:', faiss.get_num_gpus() > 0)"
+            ```
+        
+        Always activate the conda environment before running the system:
         ```bash
-        conda install -c conda-forge faiss-gpu
+        conda activate wits
+        python run.py
         ```
-        If this command doesn't work for your specific OS/environment, consult the official Faiss installation documentation and the notes in `requirements.txt`.
+
     * For **CPU-only support**:
-        If you don't have a compatible GPU or prefer the CPU version, you can install `faiss-cpu`. You can try:
+        If you don't have a compatible GPU or prefer CPU version:
         ```bash
         pip install faiss-cpu
         ```
-        (Ensure `faiss-cpu` is uncommented or added to your `requirements.txt` if you prefer managing it there for pip-based environments).
+
+    **Important Notes**:
+    - Do not have both faiss-cpu and faiss-gpu installed simultaneously
+    - If switching from CPU to GPU version:
+        1. Uninstall faiss-cpu: `pip uninstall faiss-cpu`
+        2. Follow the GPU support installation steps above
+    - If switching from GPU to CPU version:
+        1. Deactivate conda environment: `conda deactivate`
+        2. Install faiss-cpu: `pip install faiss-cpu`
 
 4.  **Run the system**:
     ```bash
