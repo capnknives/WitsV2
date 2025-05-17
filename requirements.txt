@@ -19,7 +19,7 @@ aiohttp>=3.9.1
 
 # Vector embeddings and search
 sentence-transformers>=2.2.2
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0  # FAISS requires numpy 1.x
 
 # IMPORTANT: FAISS Installation
 # For CPU-only support (default):
