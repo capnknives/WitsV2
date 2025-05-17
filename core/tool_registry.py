@@ -65,7 +65,7 @@ class ToolRegistry:
                     details={
                         "tool_name": tool_instance.name,
                         "tool_type": tool_instance.__class__.__name__,
-                        "overwritten": tool_instance.name in self._tools,
+                        "overwritten": is_overwritten,
                         "total_tools": len(self._tools)
                     },
                     duration_ms=execution_time,
