@@ -5,58 +5,170 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WITS-NEXUS v2 Web Interface</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <h1>WITS-NEXUS v2</h1>
-
-        <div class="session-controls">
-            <label for="session-id-input">Session ID:</label>
-            <input type="text" id="session-id-input" readonly>
-            <button id="new-session-btn" title="Start New Session (clears current display & gets new ID)">New Session</button>
+        <div class="header-area">
+            <div class="logo-area">
+                <h1>WITS-NEXUS v2</h1>
+            </div>
+            <div class="nav-links">
+                <a href="/debug" class="nav-link" title="View Debug Dashboard"><i class="fas fa-chart-line"></i> Debug</a>
+                <a href="#" id="settings-link" class="nav-link" title="Settings"><i class="fas fa-cog"></i> Settings</a>
+            </div>
         </div>
 
-        <div class="controls">
-            <div class="control-group">
-                <label for="agent-select">Active Agent:</label>
-                <select id="agent-select">
-                    </select>
-            </div>
-            <div class="control-group">
-                <label for="model-select">LLM Model (for current agent):</label>
-                <select id="model-select">
-                    </select>
-            </div>
-            <div class="control-group">
-                <label for="temperature-slider">Temperature:</label>
-                <input type="range" id="temperature-slider" min="0" max="2" step="0.1" value="0.7">
-                <span id="temperature-value">0.7</span>
-            </div>
-            <button id="update-params-btn">Apply LLM Params</button>
+        <div class="tabs">
+            <div class="tab active" data-tab="chat">Chat Interface</div>
+            <div class="tab" data-tab="tools">Tools & Actions</div>
+            <div class="tab" data-tab="status">System Status</div>
         </div>
 
-        <div class="chat-area">
+        <div class="tab-content" id="chat-tab" style="display:block;">
+            <div class="session-controls">
+                <label for="session-id-input">Session ID:</label>
+                <input type="text" id="session-id-input" readonly>
+                <button id="new-session-btn" title="Start New Session (clears current display & gets new ID)"><i class="fas fa-plus"></i> New Session</button>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label for="agent-select"><i class="fas fa-robot"></i> Active Agent:</label>
+                    <select id="agent-select">
+                        </select>
+                </div>
+                <div class="control-group">
+                    <label for="model-select"><i class="fas fa-brain"></i> LLM Model:</label>
+                    <select id="model-select">
+                        </select>
+                </div>
+                <div class="control-group">
+                    <label for="temperature-slider"><i class="fas fa-thermometer-half"></i> Temperature:</label>
+                    <input type="range" id="temperature-slider" min="0" max="2" step="0.1" value="0.7">
+                    <span id="temperature-value">0.7</span>
+                </div>
+                <button id="update-params-btn"><i class="fas fa-check-circle"></i> Apply LLM Params</button>
+            </div>        <div class="chat-area">
             <div id="conversation" class="conversation-log">
+                <div class="empty-state">
+                    <i class="fas fa-comments fa-3x"></i>
+                    <p>Your conversation with WITS-NEXUS will appear here</p>
                 </div>
+            </div>
             <div id="thinking-process" class="thinking-log">
-                <h3>Agent Thinking Process:</h3>
+                <h3><i class="fas fa-brain"></i> Agent Thinking Process:</h3>
+                <div class="empty-state">
+                    <i class="fas fa-lightbulb fa-3x"></i>
+                    <p>Agent's reasoning and planning will appear here</p>
                 </div>
+            </div>
         </div>
 
         <div class="input-area">
-            <input type="text" id="goal-input" placeholder="Enter your goal...">
-            <button id="send-goal-btn">Send</button>
+            <div class="input-controls">
+                <button id="upload-btn" title="Upload File"><i class="fas fa-paperclip"></i></button>
+                <input type="file" id="file-upload" hidden>
+            </div>
+            <input type="text" id="goal-input" placeholder="Enter your goal or ask a question...">
+            <button id="send-goal-btn"><i class="fas fa-paper-plane"></i> Send</button>
         </div>
 
         <div class="memory-controls">
-            <h3>Memory (Session: <span id="memory-session-id-display"></span>)</h3>
+            <div class="memory-header">
+                <h3><i class="fas fa-database"></i> Memory (Session: <span id="memory-session-id-display"></span>)</h3>
+                <div class="memory-actions">
+                    <button id="search-memory-btn"><i class="fas fa-search"></i> Search</button>
+                    <button id="clear-memory-btn"><i class="fas fa-trash"></i> Clear</button>
+                </div>
+            </div>
             <input type="text" id="memory-search-input" placeholder="Search memory...">
-            <button id="search-memory-btn">Search</button>
-            <button id="clear-memory-btn">Clear Session Memory</button>
-            <div id="memory-search-results" class="memory-results"></div>
+            <div id="memory-search-results" class="memory-results">
+                <div class="empty-state">
+                    <i class="fas fa-history fa-2x"></i>
+                    <p>Search results will appear here</p>
+                </div>
+            </div>
+        </div>
+        </div><!-- End of chat-tab -->
+
+        <!-- Tools Tab Content -->
+        <div class="tab-content" id="tools-tab" style="display:none;">
+            <div class="tools-grid">
+                <div class="tool-card">
+                    <div class="tool-icon"><i class="fas fa-calculator"></i></div>
+                    <h3>Calculator</h3>
+                    <p>Perform mathematical calculations</p>
+                    <button class="tool-action-btn" data-tool="calculator">Use Tool</button>
+                </div>
+                <div class="tool-card">
+                    <div class="tool-icon"><i class="fas fa-calendar"></i></div>
+                    <h3>Date & Time</h3>
+                    <p>Get date, time, and calendar information</p>
+                    <button class="tool-action-btn" data-tool="datetime">Use Tool</button>
+                </div>
+                <div class="tool-card">
+                    <div class="tool-icon"><i class="fas fa-file"></i></div>
+                    <h3>File Operations</h3>
+                    <p>Read, write, and manage files</p>
+                    <button class="tool-action-btn" data-tool="file">Use Tool</button>
+                </div>
+                <div class="tool-card">
+                    <div class="tool-icon"><i class="fas fa-code-branch"></i></div>
+                    <h3>Git Tools</h3>
+                    <p>Perform Git operations</p>
+                    <button class="tool-action-btn" data-tool="git">Use Tool</button>
+                </div>
+                <div class="tool-card">
+                    <div class="tool-icon"><i class="fas fa-search"></i></div>
+                    <h3>Web Search</h3>
+                    <p>Search the web for information</p>
+                    <button class="tool-action-btn" data-tool="web_search">Use Tool</button>
+                </div>
+            </div>
         </div>
 
+        <!-- Status Tab Content -->
+        <div class="tab-content" id="status-tab" style="display:none;">
+            <div class="system-status">
+                <div class="status-card">
+                    <h3><i class="fas fa-server"></i> System Status</h3>
+                    <div class="status-item">
+                        <span class="status-label">API Status:</span>
+                        <span class="status-value" id="api-status">Checking...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">LLM Model:</span>
+                        <span class="status-value" id="current-model">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Active Sessions:</span>
+                        <span class="status-value" id="active-sessions">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Memory Segments:</span>
+                        <span class="status-value" id="memory-segments">0</span>
+                    </div>
+                </div>
+                <div class="status-card">
+                    <h3><i class="fas fa-chart-bar"></i> Performance</h3>
+                    <div class="status-item">
+                        <span class="status-label">Avg Response Time:</span>
+                        <span class="status-value" id="avg-response-time">0 ms</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">LLM Calls:</span>
+                        <span class="status-value" id="llm-calls">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Tool Calls:</span>
+                        <span class="status-value" id="tool-calls">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
     <script src="{{ url_for('static', path='/script.js') }}"></script>
 </body>
 </html>

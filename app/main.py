@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import importlib # Needed for dynamic agent loading
@@ -250,12 +251,33 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict this to specific domains
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Import and include routes
+from app.routes.debug_routes import debug_router
+from app.routes.file_routes import file_router
+
+app.include_router(debug_router)
+app.include_router(file_router)
+
 
 # --- API Routes (Ensure they use the locally defined helper functions) ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/debug", response_class=HTMLResponse)
+async def debug_dashboard(request: Request):
+    """Serve the debug dashboard."""
+    return templates.TemplateResponse("debug_dashboard.html", {"request": request})
 
 @app.post("/api/session/agent")
 async def select_agent_for_session_endpoint(agent_select: AgentSelectRequest, request: Request): # Renamed for clarity

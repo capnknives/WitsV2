@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // DOM Elements
     const goalInput = document.getElementById('goal-input');
     const sendGoalBtn = document.getElementById('send-goal-btn');
     const conversationDiv = document.getElementById('conversation');
@@ -18,24 +19,75 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearMemoryBtn = document.getElementById('clear-memory-btn');
     const memorySearchResultsDiv = document.getElementById('memory-search-results');
     const memorySessionIdDisplay = document.getElementById('memory-session-id-display');
-
-    let currentSessionId = localStorage.getItem('witsNexusSessionId') || `web_session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    
+    // New elements
+    const uploadBtn = document.getElementById('upload-btn');
+    const fileUpload = document.getElementById('file-upload');
+    
+    // Tab Navigation
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            
+            // Update active tab
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // Show selected tab content
+            tabContents.forEach(content => {
+                content.style.display = 'none';
+                if (content.id === `${tabName}-tab`) {
+                    content.style.display = 'block';
+                }
+            });
+            
+            // Load data for status tab if selected
+            if (tabName === 'status') {
+                fetchSystemStatus();
+            }
+        });
+    });    // Initialize session
+    let currentSessionId = localStorage.getItem('witsNexusSessionId') || generateSessionId();
     localStorage.setItem('witsNexusSessionId', currentSessionId);
     sessionIdInput.value = currentSessionId;
-    memorySessionIdDisplay.textContent = currentSessionId.substring(0,15) + "...";
-
+    memorySessionIdDisplay.textContent = formatSessionId(currentSessionId);
+    
+    function generateSessionId() {
+        return `web_session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    }
+    
+    function formatSessionId(id) {
+        return id.length > 15 ? `${id.substring(0,15)}...` : id;
+    }
 
     newSessionBtn.addEventListener('click', () => {
-        currentSessionId = `web_session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+        currentSessionId = generateSessionId();
         localStorage.setItem('witsNexusSessionId', currentSessionId);
         sessionIdInput.value = currentSessionId;
-        memorySessionIdDisplay.textContent = currentSessionId.substring(0,15) + "...";
-        conversationDiv.innerHTML = ""; // Clear conversation
-        thinkingProcessDiv.innerHTML = "<h3>Agent Thinking Process:</h3>"; // Clear thinking
-        memorySearchResultsDiv.innerHTML = ""; // Clear memory results
+        memorySessionIdDisplay.textContent = formatSessionId(currentSessionId);
+        conversationDiv.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-comments fa-3x"></i>
+                <p>Your conversation with WITS-NEXUS will appear here</p>
+            </div>`;
+        thinkingProcessDiv.innerHTML = `
+            <h3><i class="fas fa-brain"></i> Agent Thinking Process:</h3>
+            <div class="empty-state">
+                <i class="fas fa-lightbulb fa-3x"></i>
+                <p>Agent's reasoning and planning will appear here</p>
+            </div>`;
+        memorySearchResultsDiv.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-history fa-2x"></i>
+                <p>Search results will appear here</p>
+            </div>`;
+        
         addMessageToLog({type: 'info', content: `New session started: ${currentSessionId}`}, thinkingProcessDiv);
-        fetchAgentProfiles(); // Re-fetch profiles to reset agent selection potentially
-        fetchSessionLLMParameters(); // Fetch params for the new session (will likely be default)
+        fetchAgentProfiles(); // Re-fetch profiles to reset agent selection
+        fetchSessionLLMParameters(); // Fetch params for the new session
     });
 
     // --- Agent Selection ---
@@ -291,6 +343,72 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) { console.error('Error clearing memory:', error); memorySearchResultsDiv.textContent = 'Error clearing memory.'; }
     });
 
+    // File Upload Handling
+    if (uploadBtn && fileUpload) {
+        function handleFileUpload() {
+            const file = fileUpload.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('session_id', currentSessionId);
+            
+            // Add file message to conversation
+            addMessageToLog({
+                type: 'info',
+                content: `Uploading file: ${file.name}`
+            }, conversationDiv);
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+                return response.json();
+            })
+            .then(data => {
+                addMessageToLog({
+                    type: 'info',
+                    content: `File uploaded successfully: ${file.name}`
+                }, conversationDiv);
+                
+                // If we got a file path back, add it to the goal input
+                if (data.file_path) {
+                    goalInput.value = `Analyze the uploaded file: ${data.file_path}`;
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading file:', error);
+                addMessageToLog({
+                    type: 'error',
+                    content: `File upload failed: ${error.message}`
+                }, conversationDiv);
+            });
+        }
+    }
+    
+    // System Status Updates
+    function fetchSystemStatus() {
+        fetch('/api/debug/metrics')
+            .then(response => response.json())
+            .then(data => {
+                // Update status values
+                document.getElementById('api-status').textContent = 'Online';
+                document.getElementById('current-model').textContent = modelSelect.value || 'Not set';
+                document.getElementById('active-sessions').textContent = data.active_sessions || '0';
+                document.getElementById('memory-segments').textContent = data.memory_segments || '0';
+                document.getElementById('avg-response-time').textContent = `${Math.round(data.avg_response_time || 0)} ms`;
+                document.getElementById('llm-calls').textContent = data.llm_calls || '0';
+                document.getElementById('tool-calls').textContent = data.tool_calls || '0';
+            })
+            .catch(error => {
+                console.error('Error fetching system status:', error);
+                document.getElementById('api-status').textContent = 'Offline';
+                document.getElementById('api-status').className = 'status-value error';
+            });
+    }
+    
     // Initial load
     fetchAgentProfiles(); // This will also trigger selectAgentForSession and then fetchSessionLLMParameters
     // fetchSessionLLMParameters(); // Called by fetchAgentProfiles after selection

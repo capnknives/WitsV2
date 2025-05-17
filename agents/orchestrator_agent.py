@@ -26,13 +26,16 @@ class OrchestratorAgent(BaseAgent):
     def __init__(self, agent_name: str, config: Any,
                  llm_interface: LLMInterface, 
                  memory_manager: MemoryManager, 
-                 tool_registry: ToolRegistry):
+                 tool_registry: ToolRegistry,
+                 specialized_agents: Dict[str, BaseAgent] = None):
         """Initialize the OrchestratorAgent."""
         super().__init__(agent_name, config, llm_interface, memory_manager)
         self.tool_registry = tool_registry
         self.max_iterations = self.config_full.orchestrator_max_iterations
+        self.specialized_agents = specialized_agents or {}
         
-        print(f"[OrchestratorAgent] Initialized with {len(self.tool_registry.get_all_tools())} tools and "
+        print(f"[OrchestratorAgent] Initialized with {len(self.tool_registry.get_all_tools())} tools, "
+              f"{len(self.specialized_agents)} specialized agents, and "
               f"max {self.max_iterations} iterations per goal.")
 
     async def run(self, user_goal: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -181,13 +184,22 @@ class OrchestratorAgent(BaseAgent):
                 agent_key = llm_action.delegate_to_agent_key
                 task_desc = llm_action.delegated_task_description or "No task description provided"
                 
-                # This is a placeholder - delegation will be implemented fully later
-                observation = f"Delegation to '{agent_key}' not yet fully implemented. Task: {task_desc}"
+                # Handle delegation to specialized agents
+                if agent_key in self.specialized_agents:
+                    try:
+                        # Get the specialized agent instance
+                        agent_result = await self.specialized_agents[agent_key].run(task_desc, context)
+                        observation = f"Agent {agent_key} completed task: {agent_result}"
+                    except Exception as e:
+                        observation = f"Error delegating to {agent_key}: {str(e)}"
+                else:
+                    observation = f"Delegation to '{agent_key}' not implemented. Task: {task_desc}"
+                
                 print(f"[{self.agent_name}_INFO] {observation}")
                 
                 self.memory.add_segment(
                     segment_type="DELEGATION_ATTEMPT",
-                    content_text=f"Attempted to delegate to {agent_key}: {task_desc}",
+                    content_text=f"Attempted to delegate to {agent_key}: {task_desc}\nResult: {observation}",
                     source=self.agent_name
                 )
                 

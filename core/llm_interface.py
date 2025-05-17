@@ -1,9 +1,14 @@
 # core/llm_interface.py
 import ollama
+import time
 from typing import Any, Dict, Optional, Union, List
 import json
+from datetime import datetime
+import logging
 from pydantic import ValidationError
+
 from .schemas import OrchestratorLLMResponse  # For structured output parsing
+from .debug_utils import log_async_execution_time, DebugInfo, log_debug_info
 
 class LLMInterface:
     """
@@ -13,6 +18,7 @@ class LLMInterface:
     1. Basic text generation
     2. Structured JSON outputs for specific agent types
     3. Error handling and retry logic
+    4. Detailed debugging and performance monitoring
     """
     
     def __init__(self, config: Any): 
@@ -24,8 +30,15 @@ class LLMInterface:
         """
         self.config = config
         self.default_model = self.config.models.default
-        print(f"[LLMInterface] Initialized. Default model: {self.default_model}")
+        
+        # Set up logging
+        self.logger = logging.getLogger('WITS.LLMInterface')
+        self.debug_enabled = config.debug.enabled
+        self.debug_config = config.debug.components.llm_interface
+        
+        self.logger.info(f"Initialized with default model: {self.default_model}")
 
+    @log_async_execution_time(logging.getLogger('WITS.LLMInterface'))
     async def generate_text(
         self,
         prompt: str,
@@ -43,6 +56,7 @@ class LLMInterface:
         Returns:
             str: The generated text or error message
         """
+        start_time = time.time()
         model_to_use = model_name or self.default_model
         effective_options = {}
         
@@ -54,23 +68,81 @@ class LLMInterface:
         if options:
             effective_options.update(options)
 
-        print(f"[LLMInterface] Calling model '{model_to_use}' (Text Output). Prompt length: {len(prompt)}")
+        # Log prompt if enabled
+        if self.debug_enabled and self.debug_config.log_prompts:
+            self.logger.debug(
+                f"Prompt to {model_to_use}:\n"
+                f"{'='*40}\n{prompt}\n{'='*40}"
+            )
         
         try:
             # Use synchronous ollama client for now
             # Future enhancement: switch to ollama.AsyncClient() with asyncio
+            generation_start = time.time()
             response = ollama.generate(
                 model=model_to_use,
                 prompt=prompt,
                 options=effective_options
             )
+            generation_time = (time.time() - generation_start) * 1000  # ms
             
-            print(f"[LLMInterface] Model '{model_to_use}' responded.")
-            return response.get('response', '').strip()
+            result = response.get('response', '').strip()
+            
+            # Log performance metrics
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="LLMInterface",
+                    action="generate_text",
+                    details={
+                        "model": model_to_use,
+                        "prompt_length": len(prompt),
+                        "response_length": len(result),
+                        "options": effective_options
+                    },
+                    duration_ms=generation_time,
+                    success=True
+                )
+                log_debug_info(self.logger, debug_info)
+                
+                # Log response if enabled
+                if self.debug_config.log_responses:
+                    self.logger.debug(
+                        f"Response from {model_to_use}:\n"
+                        f"{'='*40}\n{result}\n{'='*40}"
+                    )
+                
+                # Log token metrics if enabled
+                if self.debug_config.log_tokens and 'eval_count' in response:
+                    self.logger.debug(
+                        f"Token metrics for {model_to_use}:\n"
+                        f"Eval count: {response['eval_count']}\n"
+                        f"Eval duration: {response.get('eval_duration', 'N/A')}"
+                    )
+            
+            return result
             
         except Exception as e:
             error_msg = f"Error calling model '{model_to_use}': {e}"
-            print(f"[LLMInterface_ERROR] {error_msg}")
+            
+            # Log error with debug info
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="LLMInterface",
+                    action="generate_text",
+                    details={
+                        "model": model_to_use,
+                        "prompt_length": len(prompt),
+                        "options": effective_options
+                    },
+                    duration_ms=(time.time() - start_time) * 1000,
+                    success=False,
+                    error=str(e)
+                )
+                log_debug_info(self.logger, debug_info)
+            
+            self.logger.error(error_msg, exc_info=True)
             return f"Error: LLM call failed for model {model_to_use}. Details: {str(e)}"
 
     async def generate_structured_orchestrator_response(

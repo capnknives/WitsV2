@@ -56,3 +56,52 @@ orchestrator_max_iterations: 15 # Max steps in a ReAct loop for a single goal
 # ollama_options: # Global options for ollama.generate, if any
 #   temperature: 0.7
 #   num_ctx: 4096
+
+# Agent Profiles
+agent_profiles:
+  engineer:
+    agent_class: "agents.specialized.engineer_agent.EngineerAgent"
+    model: "codellama:7b"
+    temperature: 0.2  # Lower temperature for more precise coding tasks
+    tool_names: 
+      - "project_file_reader"
+      - "git_tool"
+    max_iterations: 10
+    ollama_options:
+      num_ctx: 8192  # Larger context for code analysis
+
+# Tool Configurations
+tool_configs:
+  project_file_reader:
+    allowed_extensions: [".py", ".md", ".txt", ".yaml", ".yml", ".json"]
+    exclude_patterns: ["__pycache__", "*.pyc", "*.pyo", "*.pyd"]
+  
+  git_tool:
+    allowed_commands: ["status", "branch", "add", "commit", "diff", "log"]
+    require_confirmation: true  # Whether to require human confirmation for git operations
+    branch_prefix: "wits-improvement-"  # Prefix for auto-generated branch names
+
+# Debug Settings
+debug:
+  enabled: true
+  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  console_logging_enabled: true
+  console_log_level: "INFO"
+  file_logging_enabled: true
+  log_directory: "logs"
+  performance_monitoring: true
+  components:
+    llm_interface:
+      log_prompts: true
+      log_responses: true
+      log_tokens: true
+    memory_manager:
+      log_embeddings: true
+      log_searches: true
+    tools:
+      log_args: true
+      log_results: true
+    agents:
+      log_thoughts: true
+      log_actions: true
+      log_delegations: true

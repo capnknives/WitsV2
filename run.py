@@ -3,11 +3,16 @@ import asyncio
 import argparse
 import os
 import sys
+import time
+import logging
+from datetime import datetime
 
 # Ensure the project root is in sys.path to allow imports from core, agents, tools
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+from core.debug_utils import setup_logging, DebugInfo, log_debug_info
 
 from core.config import load_app_config, AppConfig
 from core.llm_interface import LLMInterface
@@ -16,15 +21,20 @@ from core.memory_manager import MemoryManager
 # from core.ethics import EthicsManager # Placeholder for ethics integration
 
 from agents.orchestrator_agent import OrchestratorAgent
+from agents.specialized.engineer_agent import EngineerAgent
 
 # Import all the tools we've implemented
 from tools.calculator_tool import CalculatorTool
 from tools.datetime_tool import DateTimeTool
 from tools.web_search_tool import WebSearchTool
 from tools.file_tools import ReadFileTool, WriteFileTool, ListFilesTool
+from tools.project_file_tools import ProjectFileReaderTool
+from tools.git_tools import GitTool
 
 async def start_wits_cli(config: AppConfig):
-    print(f"Initializing {config.app_name} CLI...")
+    # Initialize logging
+    logger = setup_logging(config.model_dump())
+    logger.info(f"Initializing {config.app_name} CLI...")
 
     # 1. Initialize LLMInterface
     llm_interface = LLMInterface(config)  # Pass the whole AppConfig object
@@ -51,6 +61,13 @@ async def start_wits_cli(config: AppConfig):
     write_file_tool = WriteFileTool(config.model_dump())
     tool_registry.register_tool(write_file_tool)
     
+    # Project tools for self-improvement capabilities
+    project_file_reader = ProjectFileReaderTool(config.model_dump())
+    tool_registry.register_tool(project_file_reader)
+    
+    git_tool = GitTool(config.model_dump())
+    tool_registry.register_tool(git_tool)
+    
     list_files_tool = ListFilesTool(config.model_dump())
     tool_registry.register_tool(list_files_tool)
     
@@ -60,20 +77,49 @@ async def start_wits_cli(config: AppConfig):
         tool_registry.register_tool(web_search_tool)
         print(f"[WITS CLI] Internet access is enabled. Web search tool registered.")
     
+    # Git tool (if git integration is enabled)
+    if config.git_integration.enabled:
+        git_tool = GitTool(config.model_dump())
+        tool_registry.register_tool(git_tool)
+        print(f"[WITS CLI] Git integration is enabled. Git tool registered.")
+    
     print(f"[WITS CLI] Registered tools: {[tool.name for tool in tool_registry.get_all_tools()]}")
 
     # 4. Initialize EthicsManager (placeholder)
     # ethics_manager = EthicsManager(config)
 
-    # 5. Initialize OrchestratorAgent
+    # 5. Initialize OrchestratorAgent with specialized agents
+    specialized_agents = {
+        "engineer": engineer_agent
+    }
+    
     orchestrator = OrchestratorAgent(
         agent_name="WITS_Orchestrator", 
         config=config,  # Pass AppConfig
         llm_interface=llm_interface, 
         memory_manager=memory_manager,
-        tool_registry=tool_registry
+        tool_registry=tool_registry,
+        specialized_agents=specialized_agents
         # ethics_manager=ethics_manager # Pass if orchestrator uses it directly
     )
+
+    # 6. Initialize EngineerAgent with its own tool registry
+    engineer_tool_registry = ToolRegistry()
+    
+    # Register only the tools needed for the EngineerAgent
+    engineer_tool_registry.register_tool(project_file_reader)
+    engineer_tool_registry.register_tool(git_tool)
+    engineer_tool_registry.register_tool(read_file_tool)
+    engineer_tool_registry.register_tool(write_file_tool)
+    
+    engineer_agent = EngineerAgent(
+        agent_name="WITS_Engineer",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=engineer_tool_registry
+    )
+    print(f"[WITS CLI] EngineerAgent initialized with tools: {[tool.name for tool in engineer_tool_registry.get_all_tools()]}")
 
     print(f"\n{config.app_name} CLI (Orchestrator Model: {config.models.orchestrator}) is ready.")
     print("Type your goal or 'exit' to quit.")
@@ -82,27 +128,70 @@ async def start_wits_cli(config: AppConfig):
         try:
             user_goal = input("WITS v2 >> ").strip()
             if user_goal.lower() in ["exit", "quit", "shutdown"]:
-                print(f"Exiting {config.app_name} CLI.")
+                logger.info(f"Exiting {config.app_name} CLI.")
                 break
             if not user_goal:
                 continue
             
-            print(f"\n[WITS CLI] Processing goal: '{user_goal}'...")
+            logger.info(f"Processing goal: '{user_goal}'")
+            start_time = time.time()
+            
+            # Log debug info for goal start
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="CLI",
+                action="process_goal",
+                details={
+                    "goal": user_goal,
+                    "orchestrator_model": config.models.orchestrator
+                },
+                duration_ms=0,
+                success=True
+            )
+            log_debug_info(logger, debug_info)
             
             # The orchestrator's run method should handle the ReAct loop internally
-            final_result = await orchestrator.run(user_goal) 
+            final_result = await orchestrator.run(user_goal)
             
-            print(f"\n[WITS CLI] Final Orchestrator Output:\n------------------------------------\n{final_result}\n------------------------------------")
+            # Log completion with timing
+            completion_time = (time.time() - start_time) * 1000  # ms
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="CLI",
+                action="goal_completed",
+                details={
+                    "goal": user_goal,
+                    "result_length": len(final_result)
+                },
+                duration_ms=completion_time,
+                success=True
+            )
+            log_debug_info(logger, debug_info)
+            
+            print(f"\n[WITS CLI] Final Output:\n------------------------------------\n{final_result}\n------------------------------------")
+            logger.debug(f"Goal completed in {completion_time:.2f}ms")
 
         except KeyboardInterrupt:
-            print(f"\nExiting {config.app_name} CLI due to user interrupt.")
+            logger.warning(f"Exiting {config.app_name} CLI due to user interrupt.")
             break
         except Exception as e:
-            print(f"[WITS_CLI_ERROR] An unexpected error occurred: {e}")
-            import traceback
-            traceback.print_exc()
-            # Optionally, allow continuing after an error or break
-            # break 
+            error_msg = f"An unexpected error occurred: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            # Log error details
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="CLI",
+                action="goal_error",
+                details={
+                    "goal": user_goal,
+                    "error_type": type(e).__name__
+                },
+                duration_ms=(time.time() - start_time) * 1000,
+                success=False,
+                error=str(e)
+            )
+            log_debug_info(logger, debug_info)
 
 def start_wits_web_app(config: AppConfig):
     print("Starting WITS-NEXUS v2 Web App (Placeholder)...")

@@ -1,6 +1,11 @@
 # core/tool_registry.py
 from typing import List, Dict, Any, Type, Optional
+import logging
+import time
+from datetime import datetime
+
 from tools.base_tool import BaseTool
+from .debug_utils import DebugInfo, log_debug_info, log_execution_time, PerformanceMonitor
 
 class ToolRegistry:
     """
@@ -10,11 +15,25 @@ class ToolRegistry:
     and provides methods to register, retrieve, and list available tools.
     """
     
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize an empty tool registry."""
         self._tools: Dict[str, BaseTool] = {}
-        print("[ToolRegistry] Initialized.")
-
+        
+        # Set up logging
+        self.logger = logging.getLogger('WITS.ToolRegistry')
+        
+        if config and 'debug' in config:
+            self.debug_enabled = config['debug'].get('enabled', False)
+            self.debug_config = config['debug'].get('components', {}).get('tools', {})
+        else:
+            self.debug_enabled = False
+            self.debug_config = {}
+        
+        # Performance monitoring
+        self.performance_monitor = PerformanceMonitor("ToolRegistry")
+        self.perf_monitor = PerformanceMonitor('ToolRegistry')
+        
+        self.logger.info("Tool Registry initialized")
     def register_tool(self, tool_instance: BaseTool):
         """
         Register a tool in the registry.
@@ -25,15 +44,55 @@ class ToolRegistry:
         Raises:
             TypeError: If the object is not an instance of BaseTool
         """
-        if not isinstance(tool_instance, BaseTool):
-            raise TypeError("Object to register must be an instance of BaseTool or its subclass.")
+        start_time = time.time()
         
-        if tool_instance.name in self._tools:
-            print(f"[ToolRegistry_WARN] Tool '{tool_instance.name}' is already registered. Overwriting.")
-        
-        self._tools[tool_instance.name] = tool_instance
-        print(f"[ToolRegistry] Registered tool: {tool_instance.name}")
-
+        try:
+            if not isinstance(tool_instance, BaseTool):
+                raise TypeError("Object to register must be an instance of BaseTool or its subclass.")
+            
+            if tool_instance.name in self._tools:
+                self.logger.warning(f"Tool '{tool_instance.name}' is already registered. Overwriting.")
+            
+            self._tools[tool_instance.name] = tool_instance
+            
+            # Log success with debug info
+            if self.debug_enabled:
+                execution_time = (time.time() - start_time) * 1000
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="ToolRegistry",
+                    action="register_tool",
+                    details={
+                        "tool_name": tool_instance.name,
+                        "tool_type": tool_instance.__class__.__name__,
+                        "overwritten": is_overwritten,
+                        "total_tools": len(self._tools)
+                    },
+                    duration_ms=execution_time,
+                    success=True
+                )
+                log_debug_info(self.logger, debug_info)
+            
+            self.logger.info(f"Registered tool: {tool_instance.name}")
+            
+        except Exception as e:
+            if self.debug_enabled:
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="ToolRegistry",
+                    action="register_tool",
+                    details={
+                        "tool_name": getattr(tool_instance, 'name', 'unknown'),
+                        "error_type": type(e).__name__
+                    },
+                    duration_ms=(time.time() - start_time) * 1000,
+                    success=False,
+                    error=str(e)
+                )
+                log_debug_info(self.logger, debug_info)
+            raise
+    
+    @log_execution_time(logging.getLogger('WITS.ToolRegistry'))
     def get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """
         Get a tool by name.
@@ -44,9 +103,32 @@ class ToolRegistry:
         Returns:
             BaseTool or None: The tool instance if found, None otherwise
         """
+        start_time = time.time()
+        
         tool = self._tools.get(tool_name)
+        
+        # Log attempt and result
+        if self.debug_enabled:
+            execution_time = (time.time() - start_time) * 1000
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="ToolRegistry",
+                action="get_tool",
+                details={
+                    "requested_tool": tool_name,
+                    "found": tool is not None,
+                    "available_tools": list(self._tools.keys())
+                },
+                duration_ms=execution_time,
+                success=tool is not None
+            )
+            log_debug_info(self.logger, debug_info)
+        
         if not tool:
-            print(f"[ToolRegistry_ERROR] Tool '{tool_name}' not found.")
+            self.logger.error(f"Tool '{tool_name}' not found.")
+        else:
+            self.logger.debug(f"Retrieved tool: {tool_name}")
+        
         return tool
 
     def get_all_tools(self) -> List[BaseTool]:

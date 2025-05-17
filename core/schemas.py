@@ -1,8 +1,15 @@
 # core/schemas.py
-from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import uuid
+from pydantic import BaseModel, Field
+
+class MemorySegment(BaseModel):
+    id: str = Field(default_factory=lambda: f"mem_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex[:6]}")
+    timestamp: datetime = Field(default_factory=datetime.now)
+    type: str # E.g., "USER_INPUT", "LLM_THOUGHT", "TOOL_CALL", "TOOL_RESULT", "ORCHESTRATOR_RESPONSE" 
+    source: str # E.g., "USER", "ORCHESTRATOR_LLM", "WebSearchTool", "ORCHESTRATOR_AGENT"
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # For search distances, debug info, etc.
 
 class LLMToolCall(BaseModel):
     """
