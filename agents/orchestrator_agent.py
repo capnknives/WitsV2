@@ -2,13 +2,35 @@
 from typing import Any, Dict, List, Optional, Union, Type
 import json
 import time
-from pydantic import ValidationError, BaseModel
+import logging
+from pydantic import ValidationError, BaseModel, Field
 
 from .base_agent import BaseAgent
 from core.llm_interface import LLMInterface
 from core.tool_registry import ToolRegistry
 from core.memory_manager import MemoryManager
-from core.schemas import LLMToolCall, OrchestratorLLMResponse, OrchestratorThought, OrchestratorAction
+from core.debug_utils import log_async_execution_time
+from core.schemas import (
+    LLMToolCall, 
+    OrchestratorLLMResponse, 
+    OrchestratorThought, 
+    OrchestratorAction,
+    MemorySegment
+)
+
+class AgentDelegationRequest(BaseModel):
+    """Model for agent delegation requests."""
+    agent_key: str = Field(..., description="Identifier of the agent to delegate to.")
+    task_description: str = Field(..., description="Description of the task to delegate.")
+    context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context for the task.")
+
+class AgentDelegationResponse(BaseModel):
+    """Model for agent delegation responses."""
+    agent_key: str
+    result: str
+    completed: bool = True
+    error: Optional[str] = None
+    error: Optional[str] = None
 
 class OrchestratorAgent(BaseAgent):
     """
@@ -27,14 +49,15 @@ class OrchestratorAgent(BaseAgent):
                  llm_interface: LLMInterface, 
                  memory_manager: MemoryManager, 
                  tool_registry: ToolRegistry,
-                 specialized_agents: Dict[str, BaseAgent] = None):
+                 specialized_agents: Optional[Dict[str, BaseAgent]] = None):
         """Initialize the OrchestratorAgent."""
         super().__init__(agent_name, config, llm_interface, memory_manager)
         self.tool_registry = tool_registry
         self.max_iterations = self.config_full.orchestrator_max_iterations
         self.specialized_agents = specialized_agents or {}
+        self.logger = logging.getLogger(f"WITS.Agents.{agent_name}")
         
-        print(f"[OrchestratorAgent] Initialized with {len(self.tool_registry.get_all_tools())} tools, "
+        self.logger.info(f"OrchestratorAgent initialized with {len(self.tool_registry.get_all_tools())} tools, "
               f"{len(self.specialized_agents)} specialized agents, and "
               f"max {self.max_iterations} iterations per goal.")
 
@@ -184,19 +207,16 @@ class OrchestratorAgent(BaseAgent):
                 agent_key = llm_action.delegate_to_agent_key
                 task_desc = llm_action.delegated_task_description or "No task description provided"
                 
-                # Handle delegation to specialized agents
-                if agent_key in self.specialized_agents:
-                    try:
-                        # Get the specialized agent instance
-                        agent_result = await self.specialized_agents[agent_key].run(task_desc, context)
-                        observation = f"Agent {agent_key} completed task: {agent_result}"
-                    except Exception as e:
-                        observation = f"Error delegating to {agent_key}: {str(e)}"
+                # Process delegation request
+                delegation_result = await self._handle_agent_delegation(agent_key, task_desc, context)
+                observation = f"Agent {agent_key} delegation result: {delegation_result.result}"
+                
+                if delegation_result.error:
+                    self.logger.error(f"Delegation to {agent_key} failed: {delegation_result.error}")
                 else:
-                    observation = f"Delegation to '{agent_key}' not implemented. Task: {task_desc}"
+                    self.logger.info(f"Delegation to {agent_key} completed successfully")
                 
-                print(f"[{self.agent_name}_INFO] {observation}")
-                
+                # Record the delegation attempt in memory
                 self.memory.add_segment(
                     segment_type="DELEGATION_ATTEMPT",
                     content_text=f"Attempted to delegate to {agent_key}: {task_desc}\nResult: {observation}",
@@ -264,6 +284,50 @@ class OrchestratorAgent(BaseAgent):
         print(f"[{self.agent_name}] {timeout_message}")
         return timeout_message
 
+    async def _handle_agent_delegation(self, agent_key: str, task_description: str, context: Dict[str, Any]) -> AgentDelegationResponse:
+        """
+        Delegate a task to a specialized agent.
+        
+        Args:
+            agent_key: The key of the agent to delegate to
+            task_description: Description of the task to perform
+            context: Additional context for the task
+            
+        Returns:
+            AgentDelegationResponse: The result of the delegation
+        """
+        if agent_key not in self.specialized_agents:
+            return AgentDelegationResponse(
+                agent_key=agent_key,
+                result=f"Agent '{agent_key}' not found in specialized agents registry",
+                completed=False,
+                error=f"Unknown agent key: {agent_key}"
+            )
+        
+        self.logger.info(f"Delegating task to {agent_key}: {task_description}")
+        
+        try:
+            # Get the specialized agent and run the task
+            agent = self.specialized_agents[agent_key]
+            result = await agent.run(task_description, context)
+            
+            # Create a success response
+            return AgentDelegationResponse(
+                agent_key=agent_key,
+                result=result,
+                completed=True
+            )
+            
+        except Exception as e:
+            error_msg = f"Error during delegation to {agent_key}: {str(e)}"
+            self.logger.error(error_msg)
+            return AgentDelegationResponse(
+                agent_key=agent_key,
+                result=f"Failed to complete task: {error_msg}",
+                completed=False,
+                error=error_msg
+            )
+
     def _build_llm_prompt(self, goal: str, history_list: List[str], tools_summary: str) -> str:
         """
         Build a prompt for the LLM that includes instructions, context, and expected output format.
@@ -305,6 +369,22 @@ Ensure your entire response is a single, valid JSON object that can be parsed di
 DO NOT include any text outside the JSON structure. Do not use ```json blocks, just output the raw JSON.
 """
 
+        # Add specialized agent information
+        specialized_agents_info = ""
+        if self.specialized_agents:
+            specialized_agents_info = "\nSPECIALIZED AGENTS YOU CAN DELEGATE TO:\n"
+            for key in self.specialized_agents:
+                if "scribe" in key.lower():
+                    specialized_agents_info += f"- {key}: Creates documentation, summaries, reports, and transforms text content\n"
+                elif "analyst" in key.lower():
+                    specialized_agents_info += f"- {key}: Analyzes data, identifies patterns, and provides insights\n"
+                elif "engineer" in key.lower():
+                    specialized_agents_info += f"- {key}: Analyzes and modifies code, implements features, and manages code quality\n"
+                elif "researcher" in key.lower():
+                    specialized_agents_info += f"- {key}: Researches topics, gathers information, and synthesizes findings\n"
+                else:
+                    specialized_agents_info += f"- {key}: Specialized agent with custom capabilities\n"
+
         # Construct the full prompt
         prompt = f"""
 As the WITS-NEXUS v2 Orchestrator, your task is to achieve the user's goal by thinking step-by-step and then deciding on a single, precise action.
@@ -313,7 +393,7 @@ USER'S OVERALL GOAL:
 {goal}
 
 AVAILABLE TOOLS:
-{tools_summary}
+{tools_summary}{specialized_agents_info}
 
 CONVERSATION HISTORY & OBSERVATIONS (most recent last):
 ---
@@ -327,7 +407,14 @@ YOUR TASK (Current Iteration):
    - Calling a tool with appropriate parameters
    - Providing a final answer if the goal is met
    - Asking for clarification if essential information is missing
-   - Delegating to another specialized agent (if available and appropriate)
+   - Delegating to another specialized agent when their expertise is needed
+
+GUIDELINES FOR DELEGATION:
+- Delegate to the ScribeAgent for documentation, content creation, and text transformation tasks
+- Delegate to the AnalystAgent for data analysis, pattern recognition, and insight generation
+- Delegate to the EngineerAgent for code analysis and modification tasks
+- Delegate to the ResearcherAgent for information gathering and synthesis tasks
+- Provide clear, specific instructions when delegating
 
 {output_format_instruction}
 

@@ -39,10 +39,10 @@ class GitTool(BaseTool):
         "push": "Push changes to remote"
     }
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Dict[str, Any] = {}):
         """Initialize with configuration."""
         super().__init__()
-        self.config = config or {}
+        self.config = config
         # Determine project root - this should be where .git is located
         self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
@@ -131,6 +131,7 @@ class GitTool(BaseTool):
             return GitToolResponse(
                 success=True,
                 output=process.stdout,
+                error=None,  # Added error=None
                 command=" ".join(git_cmd)
             )
             

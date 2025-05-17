@@ -21,7 +21,12 @@ from core.memory_manager import MemoryManager
 # from core.ethics import EthicsManager # Placeholder for ethics integration
 
 from agents.orchestrator_agent import OrchestratorAgent
+
+# Import specialized agents
 from agents.specialized.engineer_agent import EngineerAgent
+from agents.specialized.scribe_agent import ScribeAgent
+from agents.specialized.analyst_agent import AnalystAgent
+from agents.specialized.researcher_agent import ResearcherAgent
 
 # Import all the tools we've implemented
 from tools.calculator_tool import CalculatorTool
@@ -88,25 +93,10 @@ async def start_wits_cli(config: AppConfig):
     # 4. Initialize EthicsManager (placeholder)
     # ethics_manager = EthicsManager(config)
 
-    # 5. Initialize OrchestratorAgent with specialized agents
-    specialized_agents = {
-        "engineer": engineer_agent
-    }
+    # 5. Initialize specialized agents
     
-    orchestrator = OrchestratorAgent(
-        agent_name="WITS_Orchestrator", 
-        config=config,  # Pass AppConfig
-        llm_interface=llm_interface, 
-        memory_manager=memory_manager,
-        tool_registry=tool_registry,
-        specialized_agents=specialized_agents
-        # ethics_manager=ethics_manager # Pass if orchestrator uses it directly
-    )
-
-    # 6. Initialize EngineerAgent with its own tool registry
+    # Initialize EngineerAgent
     engineer_tool_registry = ToolRegistry()
-    
-    # Register only the tools needed for the EngineerAgent
     engineer_tool_registry.register_tool(project_file_reader)
     engineer_tool_registry.register_tool(git_tool)
     engineer_tool_registry.register_tool(read_file_tool)
@@ -119,6 +109,52 @@ async def start_wits_cli(config: AppConfig):
         memory_manager=memory_manager,
         tool_registry=engineer_tool_registry
     )
+    
+    # Initialize ScribeAgent
+    scribe_agent = ScribeAgent(
+        agent_name="WITS_Scribe",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager
+    )
+    
+    # Initialize AnalystAgent
+    analyst_agent = AnalystAgent(
+        agent_name="WITS_Analyst",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager
+    )
+    
+    # Initialize ResearcherAgent
+    researcher_agent = ResearcherAgent(
+        agent_name="WITS_Researcher",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager
+    )
+    
+    # Register all specialized agents
+    specialized_agents = {
+        "engineer_agent": engineer_agent,
+        "scribe_agent": scribe_agent,
+        "analyst_agent": analyst_agent,
+        "researcher_agent": researcher_agent
+    }
+    
+    orchestrator = OrchestratorAgent(
+        agent_name="WITS_Orchestrator", 
+        config=config,  # Pass AppConfig
+        llm_interface=llm_interface, 
+        memory_manager=memory_manager,
+        tool_registry=tool_registry,
+        specialized_agents=specialized_agents
+        # ethics_manager=ethics_manager # Pass if orchestrator uses it directly
+    )
+
+    # Log initialization of specialized agents
+    logger.info(f"Specialized agents initialized: {', '.join(specialized_agents.keys())}")
+    print(f"[WITS CLI] Specialized agents initialized: {list(specialized_agents.keys())}")
     print(f"[WITS CLI] EngineerAgent initialized with tools: {[tool.name for tool in engineer_tool_registry.get_all_tools()]}")
 
     print(f"\n{config.app_name} CLI (Orchestrator Model: {config.models.orchestrator}) is ready.")

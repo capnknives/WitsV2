@@ -25,7 +25,7 @@ class ProjectFileReaderTool(BaseTool):
     description: ClassVar[str] = "Read the contents of a project source file. Path should be relative to project root."
     args_schema: ClassVar[Type[BaseModel]] = ProjectFileReaderArgs
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Dict[str, Any] = {}):
         """Initialize with configuration."""
         super().__init__()
         self.config = config or {}
@@ -80,6 +80,7 @@ class ProjectFileReaderTool(BaseTool):
                 
             return ProjectFileReaderResponse(
                 content=content,
+                error=None,
                 file_path=args.relative_project_path,
                 exists=True
             )

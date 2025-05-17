@@ -42,6 +42,12 @@ class EngineerAgent(BaseAgent):
     4. Ensuring code quality and following best practices
     """
 
+    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any, tool_registry: Any = None):
+        """Initialize the EngineerAgent with necessary components."""
+        super().__init__(agent_name, config, llm_interface, memory_manager)
+        self.tool_registry = tool_registry
+        print(f"[{self.agent_name}] Initialized with {len(tool_registry.get_all_tools()) if tool_registry else 0} tools.")
+
     async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
         Execute an engineering task.

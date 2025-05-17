@@ -21,22 +21,59 @@ class LLMInterface:
     4. Detailed debugging and performance monitoring
     """
     
-    def __init__(self, config: Any): 
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        temperature: float = 0.7,
+        ollama_url: Optional[str] = None,
+        request_timeout: Optional[int] = None
+    ): 
         """
         Initialize the LLM interface with configuration.
         
         Args:
-            config: Application configuration object
+            model_name: The name of the model to use by default
+            temperature: The temperature parameter for generation (0.0 to 1.0)
+            ollama_url: The URL of the Ollama server
+            request_timeout: Timeout for Ollama requests in seconds
         """
-        self.config = config
-        self.default_model = self.config.models.default
+        self._model_name = model_name
+        self._temperature = temperature
+        self._ollama_url = ollama_url
+        self._request_timeout = request_timeout
         
         # Set up logging
         self.logger = logging.getLogger('WITS.LLMInterface')
-        self.debug_enabled = config.debug.enabled
-        self.debug_config = config.debug.components.llm_interface
         
-        self.logger.info(f"Initialized with default model: {self.default_model}")
+        # Set default debug values
+        self.debug_enabled = False
+        self.debug_config = {"log_prompts": False, "log_responses": False, "log_tokens": False}
+        
+        self.logger.info(f"Initialized with model: {self._model_name or 'default'}, temp: {self._temperature}")
+        if self._ollama_url:
+            self.logger.info(f"Using Ollama server at {self._ollama_url}")
+
+    @property
+    def model_name(self) -> Optional[str]:
+        """Get the current model name."""
+        return self._model_name
+    
+    @model_name.setter
+    def model_name(self, value: str):
+        """Set the model name."""
+        self._model_name = value
+    
+    @property
+    def temperature(self) -> float:
+        """Get the current temperature value."""
+        return self._temperature
+    
+    @temperature.setter
+    def temperature(self, value: float):
+        """Set the temperature value."""
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("Temperature must be between 0.0 and 1.0")
+        self._temperature = value
 
     @log_async_execution_time(logging.getLogger('WITS.LLMInterface'))
     async def generate_text(
@@ -57,25 +94,38 @@ class LLMInterface:
             str: The generated text or error message
         """
         start_time = time.time()
-        model_to_use = model_name or self.default_model
-        effective_options = {}
+        model_to_use = model_name or self._model_name
+        if not model_to_use:
+            raise ValueError("No model name specified and no default model set")
         
-        # Use config options if available
-        if hasattr(self.config, 'ollama_options'):
-            effective_options.update(self.config.ollama_options)
+        effective_options = {
+            "temperature": self._temperature
+        }
+        
+        # Set request timeout if provided
+        if self._request_timeout:
+            effective_options["timeout"] = self._request_timeout
         
         # Override with method-specific options if provided
         if options:
             effective_options.update(options)
 
         # Log prompt if enabled
-        if self.debug_enabled and self.debug_config.log_prompts:
-            self.logger.debug(
-                f"Prompt to {model_to_use}:\n"
-                f"{'='*40}\n{prompt}\n{'='*40}"
-            )
+        if self.debug_enabled:
+            try:
+                if self.debug_config.get('log_prompts', False):
+                    self.logger.debug(
+                        f"Prompt to {model_to_use}:\n"
+                        f"{'='*40}\n{prompt}\n{'='*40}"
+                    )
+            except:
+                pass
         
         try:
+            # Set up Ollama client with custom URL if provided
+            if self._ollama_url:
+                ollama.set_url(self._ollama_url)
+            
             # Use synchronous ollama client for now
             # Future enhancement: switch to ollama.AsyncClient() with asyncio
             generation_start = time.time()
@@ -106,19 +156,25 @@ class LLMInterface:
                 log_debug_info(self.logger, debug_info)
                 
                 # Log response if enabled
-                if self.debug_config.log_responses:
-                    self.logger.debug(
-                        f"Response from {model_to_use}:\n"
-                        f"{'='*40}\n{result}\n{'='*40}"
-                    )
+                try:
+                    if isinstance(self.debug_config, dict) and self.debug_config.get('log_responses', False):
+                        self.logger.debug(
+                            f"Response from {model_to_use}:\n"
+                            f"{'='*40}\n{result}\n{'='*40}"
+                        )
+                except:
+                    pass
                 
                 # Log token metrics if enabled
-                if self.debug_config.log_tokens and 'eval_count' in response:
-                    self.logger.debug(
-                        f"Token metrics for {model_to_use}:\n"
-                        f"Eval count: {response['eval_count']}\n"
-                        f"Eval duration: {response.get('eval_duration', 'N/A')}"
-                    )
+                try:
+                    if isinstance(self.debug_config, dict) and self.debug_config.get('log_tokens', False) and 'eval_count' in response:
+                        self.logger.debug(
+                            f"Token metrics for {model_to_use}:\n"
+                            f"Eval count: {response['eval_count']}\n"
+                            f"Eval duration: {response.get('eval_duration', 'N/A')}"
+                        )
+                except:
+                    pass
             
             return result
             
@@ -165,23 +221,26 @@ class LLMInterface:
         Returns:
             Union[OrchestratorLLMResponse, str]: Parsed Pydantic model or error string
         """
-        model_to_use = model_name or self.config.models.orchestrator
-        effective_options = {}
+        model_to_use = model_name or self._model_name
+        if not model_to_use:
+            raise ValueError("No model name specified and no default model set")
         
-        # Use config options if available
-        if hasattr(self.config, 'ollama_options'):
-            effective_options.update(self.config.ollama_options)
+        effective_options = {
+            "temperature": self._temperature,
+            "format": "json"  # Always set format to JSON for structured outputs
+        }
+        
+        # Set request timeout if provided
+        if self._request_timeout:
+            effective_options["timeout"] = self._request_timeout
         
         # Override with method-specific options if provided
         if options:
             effective_options.update(options)
-        
-        # Always set format to JSON for structured outputs
-        effective_options["format"] = "json"
 
         print(f"[LLMInterface] Calling model '{model_to_use}' (Structured JSON Output for Orchestrator).")
         print(f"Prompt Snippet:\n{prompt[:300]}...\n...\n{prompt[-300:]}")
-        
+
         max_retries = 2
         
         for attempt in range(max_retries):

@@ -4,12 +4,24 @@ from datetime import datetime
 import uuid
 from pydantic import BaseModel, Field
 
+class MemorySegmentContent(BaseModel):
+    text: Optional[str] = None
+    tool_name: Optional[str] = None
+    tool_args: Optional[Dict[str, Any]] = None
+    tool_output: Optional[str] = None
+
 class MemorySegment(BaseModel):
     id: str = Field(default_factory=lambda: f"mem_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex[:6]}")
     timestamp: datetime = Field(default_factory=datetime.now)
-    type: str # E.g., "USER_INPUT", "LLM_THOUGHT", "TOOL_CALL", "TOOL_RESULT", "ORCHESTRATOR_RESPONSE" 
-    source: str # E.g., "USER", "ORCHESTRATOR_LLM", "WebSearchTool", "ORCHESTRATOR_AGENT"
+    type: str  # E.g., "USER_INPUT", "LLM_THOUGHT", "TOOL_CALL", "TOOL_RESULT", "ORCHESTRATOR_RESPONSE"
+    source: str  # E.g., "USER", "ORCHESTRATOR_LLM", "WebSearchTool", "ORCHESTRATOR_AGENT"
+    content: MemorySegmentContent
+    importance: float = 0.5
+    embedding: Optional[List[float]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)  # For search distances, debug info, etc.
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class LLMToolCall(BaseModel):
     """
@@ -42,23 +54,3 @@ class OrchestratorLLMResponse(BaseModel):
     """Structured response expected from the Orchestrator's LLM after its reasoning step."""
     thought_process: OrchestratorThought
     chosen_action: OrchestratorAction
-
-# --- Memory Schemas (can be expanded from your v1) ---
-class MemorySegmentContent(BaseModel):
-    text: Optional[str] = None
-    tool_name: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    tool_output: Optional[str] = None
-    # ... other content types
-
-class MemorySegment(BaseModel):
-    id: str = Field(default_factory=lambda: f"mem_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex[:6]}")
-    timestamp: datetime = Field(default_factory=datetime.now)
-    type: str # E.g., "USER_INPUT", "LLM_THOUGHT", "TOOL_CALL", "TOOL_RESULT", "ORCHESTRATOR_RESPONSE"
-    source: str # E.g., "USER", "ORCHESTRATOR_LLM", "WebSearchTool", "ORCHESTRATOR_AGENT"
-    content: MemorySegmentContent
-    importance: float = 0.5
-    embedding: Optional[List[float]] = None
-
-    class Config:
-        arbitrary_types_allowed = True

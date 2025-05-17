@@ -64,14 +64,17 @@ class BaseTool(ABC):
 
 class ToolException(Exception):
     """Exception raised when a tool encounters an error during execution."""
-    pass
     
+    def __init__(self, message: str):
+        """Initialize with error message."""
+        self.message = message
+        super().__init__()
+
 class BaseToolWithDebug(BaseTool):
     """Extended base tool with debug capabilities."""
     
     def __init__(self, config=None):
         """Initialize with logger and debug configuration."""
-        # Note: ABC doesn't have __init__ to call super() for
         self.logger = logging.getLogger(f'WITS.Tools.{self.name}')
         
         # Set debug configuration
@@ -146,16 +149,3 @@ class BaseToolWithDebug(BaseTool):
             
             # Re-raise as ToolException
             raise ToolException(error_msg) from e
-    
-    def __init__(self, tool_name: str, message: str, details: Optional[Dict[str, Any]] = None):
-        """
-        Initialize a ToolException.
-        
-        Args:
-            tool_name: Name of the tool that raised the exception
-            message: Error message
-            details: Optional additional details about the error
-        """
-        self.tool_name = tool_name
-        self.details = details or {}
-        super().__init__(f"[{tool_name}] {message}")

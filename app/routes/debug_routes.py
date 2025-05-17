@@ -164,7 +164,7 @@ def calculate_metrics():
     llm_calls = performance_data.get("llm_interface", [])
     if llm_calls:
         metrics["llm_calls"] = len(llm_calls)
-        metrics["avg_response_time"] = sum(call["duration_ms"] for call in llm_calls) / len(llm_calls)
+        metrics["avg_response_time"] = int(sum(call["duration_ms"] for call in llm_calls) / len(llm_calls))
     
     # Count tool calls
     tool_calls = performance_data.get("tools", [])
@@ -192,7 +192,7 @@ async def get_debug_metrics():
     current_time = time.time()
     if (current_time - debug_data_cache["metrics"]["last_updated"]) > CACHE_EXPIRATION:
         debug_data_cache["metrics"] = calculate_metrics()
-        debug_data_cache["metrics"]["last_updated"] = current_time
+        debug_data_cache["metrics"]["last_updated"] = int(current_time)
     
     return debug_data_cache["metrics"]
 
@@ -204,8 +204,12 @@ async def get_performance_data():
     # Check if we need to refresh the cache
     current_time = time.time()
     if (current_time - debug_data_cache["performance"]["last_updated"]) > CACHE_EXPIRATION:
-        debug_data_cache["performance"] = extract_performance_data()
-        debug_data_cache["performance"]["last_updated"] = current_time
+        latest_performance_metrics = extract_performance_data()
+        debug_data_cache["performance"]["llm_interface"] = latest_performance_metrics.get("llm_interface", [])
+        debug_data_cache["performance"]["memory_manager"] = latest_performance_metrics.get("memory_manager", [])
+        debug_data_cache["performance"]["tools"] = latest_performance_metrics.get("tools", [])
+        debug_data_cache["performance"]["agents"] = latest_performance_metrics.get("agents", [])
+        debug_data_cache["performance"]["last_updated"] = int(current_time)
     
     return debug_data_cache["performance"]
 
@@ -218,6 +222,6 @@ async def get_debug_logs():
     current_time = time.time()
     if (current_time - debug_data_cache["logs"]["last_updated"]) > CACHE_EXPIRATION:
         debug_data_cache["logs"]["logs"] = parse_log_files()
-        debug_data_cache["logs"]["last_updated"] = current_time
+        debug_data_cache["logs"]["last_updated"] = int(current_time)
     
     return debug_data_cache["logs"]

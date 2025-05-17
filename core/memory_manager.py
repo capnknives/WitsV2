@@ -1,4 +1,4 @@
-# core/memory_manager.py - PART 1
+# core/memory_manager.py
 from typing import List, Dict, Any, Optional, Set, Union, Tuple
 from datetime import datetime
 import json
@@ -9,49 +9,40 @@ import re
 import logging
 from pydantic import BaseModel, Field
 import aiofiles
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import faiss  # Keep faiss import for type hints if needed by other parts, or for clarity
+import torch
 
 from .debug_utils import log_execution_time, log_async_execution_time, DebugInfo, log_debug_info, PerformanceMonitor
-
-# Import for vector embeddings and search
-try:
-    import numpy as np
-    from sentence_transformers import SentenceTransformer
-    import faiss
-    VECTOR_SEARCH_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"Vector search dependencies not available ({str(e)}). Vector search will be disabled.")
-    VECTOR_SEARCH_AVAILABLE = False
-    np = None
-    SentenceTransformer = None
-    faiss = None
-
+from .faiss_utils import initialize_gpu_resources, create_gpu_index, add_vectors, search_vectors
 from .schemas import MemorySegment, MemorySegmentContent
 
-# Debug model for memory operations
-class MemoryDebugInfo(BaseModel):
-    """Debug information specific to memory operations."""
-    operation_type: str = Field(..., description="Type of memory operation (add, search, etc.)")
-    segment_count: int = Field(0, description="Number of segments involved")
-    vector_search_used: bool = Field(False, description="Whether vector search was used")
-    query_length: Optional[int] = Field(None, description="Length of search query if applicable")
-    match_count: Optional[int] = Field(None, description="Number of matches found if applicable")
-    embedding_time_ms: Optional[float] = Field(None, description="Time taken for embedding generation")
-    search_time_ms: Optional[float] = Field(None, description="Time taken for search operation")
-    details: Dict[str, Any] = Field(default_factory=dict, description="Additional operation details")
+# Initialize GPU resources
+try:
+    RES, CUDA_DEVICE = initialize_gpu_resources()
+    VECTOR_SEARCH_AVAILABLE = True
+    VECTOR_SEARCH_GPU = True  # Explicitly state GPU is used
+    logger = logging.getLogger('WITS.MemoryManager')
+    logger.info("Successfully initialized GPU resources for FAISS.")
+except Exception as e:
+    # Log the error and re-raise to ensure application fails if GPU is not available
+    logging.getLogger('WITS.MemoryManager').error(f"CRITICAL: Failed to initialize GPU support: {str(e)}. GPU support is required.")
+    raise RuntimeError(f"Failed to initialize GPU support: {str(e)}. GPU support is required.") from e
 
 class MemoryManager:
     """
-    Comprehensive memory system for WITS-NEXUS v2.
+    Comprehensive memory system for WITS-NEXUS v2 with GPU-accelerated vector operations.
     Features:
+    - GPU-accelerated vector storage and search using FAISS
     - Stores memory segments with their embeddings
     - Supports goal tracking and management
-    - Vector-based semantic search
     - Memory pruning and persistence
     - Performance monitoring and debugging
     """
     
     def __init__(self, config: Any, memory_file_path: Optional[str] = None):
-        """Initialize the MemoryManager with configuration and optional file path."""
+        """Initialize the MemoryManager with configuration."""
         self.config = config
         self.memory_file = memory_file_path or config.memory_manager.memory_file_path
         self.max_segments = 1000  # Default max segments
@@ -73,71 +64,131 @@ class MemoryManager:
         else:
             self.debug_config = None
             
+        # Performance monitoring
         self.performance_monitor = PerformanceMonitor("MemoryManager")
         
         # FAISS and embedding setup
-        self.vector_model_name = self.config.memory_manager.vector_model
-        print(f"[MemoryManager] Loading embedding model: {self.vector_model_name}")
+        self.vector_model_name = getattr(self.config.memory_manager, 'vector_model', None)
+        self.embedding_model = None
+        self.index: Optional[faiss.Index] = None # Generic type hint for FAISS index
+        self.vector_dim: Optional[int] = 384  # Default fallback dimension
+        self.id_to_faiss_idx: Dict[str, int] = {}
+        self.faiss_idx_to_id: List[str] = []
         
+        # Initialize vector search (which includes FAISS index creation)
+        self._initialize_vector_search()
+    
+    def _initialize_vector_search(self):
+        """Initialize vector search capabilities with GPU support."""
+        if not VECTOR_SEARCH_AVAILABLE:
+            self.logger.warning("Vector search is not available. Skipping initialization.")
+            return
+
+        if not self.vector_model_name:
+            self.logger.warning("No vector model name configured. Skipping vector search initialization.")
+            return
+
+        self.logger.info(f"Initializing vector search. Loading embedding model: {self.vector_model_name}")
         try:
             self.embedding_model = SentenceTransformer(self.vector_model_name)
             self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
-            print(f"[MemoryManager] Vector dimension: {self.vector_dim}")
+            self.logger.info(f"Vector dimension set to: {self.vector_dim}")
             
-            # Initialize FAISS index
-            self.index = faiss.IndexFlatL2(self.vector_dim)
-            
-            # Mappings between segment IDs and FAISS indices
-            self.id_to_faiss_idx: Dict[str, int] = {}
-            self.faiss_idx_to_id: List[str] = []
+            if not isinstance(self.vector_dim, int):
+                 raise ValueError(f"Vector dimension must be an integer, got {self.vector_dim}")
+
+            # Initialize FAISS index with GPU support
+            # RES and CUDA_DEVICE are globally available from the initial GPU check
+            self.index = create_gpu_index(self.vector_dim, RES, CUDA_DEVICE)
+            self.logger.info(f"Successfully created GPU-enabled FAISS index on device {CUDA_DEVICE}.")
             
         except Exception as e:
-            print(f"[MemoryManager_ERROR] Failed to initialize embedding model: {e}")
+            self.logger.error(f"Failed to initialize embedding model or FAISS index: {e}", exc_info=True)
             self.embedding_model = None
             self.index = None
-            self.vector_dim = 384  # Default fallback dimension
-        
-        # Memory will be loaded in initialize_db_async
+            # Re-raise as this is critical for GPU-dependent operation
+            raise RuntimeError(f"Failed to initialize vector search components: {e}") from e
 
-    def _generate_embedding(self, text: str) -> Optional[Any]:
+    def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
         """Generate an embedding for the given text."""
         if not self.embedding_model:
+            self.logger.warning("Embedding model not available, cannot generate embedding.")
             return None
         
         try:
-            # Generate embedding and convert to numpy array
             embedding = self.embedding_model.encode(text, convert_to_numpy=True)
-            return embedding.astype(np.float32)
+            return embedding.astype(np.float32) if embedding is not None else None
         except Exception as e:
-            print(f"[MemoryManager] Error generating embedding: {e}")
+            self.logger.error(f"Error generating embedding: {e}", exc_info=True)
             return None
 
-    def add_segment(self, 
+    def _add_to_index(self, vector: np.ndarray, segment_id: str) -> bool:
+        """Add a vector to the FAISS index."""
+        if self.index is None:
+            self.logger.error("FAISS index is not initialized. Cannot add vector.")
+            return False
+        try:
+            # add_vectors expects a 2D array
+            vector_2d = vector.reshape(1, -1) if vector.ndim == 1 else vector
+            faiss_idx = add_vectors(self.index, vector_2d) # faiss_utils.add_vectors
+            
+            # Assuming add_vectors returns the index of the *first* added vector if multiple were added,
+            # or handles single vector addition appropriately.
+            # For a single vector, self.index.ntotal-1 would be its index.
+            # Let's assume faiss_utils.add_vectors returns the correct internal FAISS index.
+            # If add_vectors returns the new ntotal, then the index is ntotal -1.
+            # The current faiss_utils.add_vectors returns self.index.ntotal -1, which is the last added index.
+            
+            actual_faiss_id = self.index.ntotal - 1 # Get the actual index in FAISS
+            self.id_to_faiss_idx[segment_id] = actual_faiss_id
+            # Ensure faiss_idx_to_id has placeholders up to actual_faiss_id if needed,
+            # or simply append if it's always sequential.
+            # For simplicity, assuming sequential appends match FAISS internal IDs.
+            # This needs careful handling if FAISS IDs are not simple appends.
+            # If faiss_idx_to_id is a direct map, its length should be ntotal.
+            while len(self.faiss_idx_to_id) <= actual_faiss_id:
+                self.faiss_idx_to_id.append("") # Placeholder or handle more robustly
+            self.faiss_idx_to_id[actual_faiss_id] = segment_id
+            
+            self.logger.debug(f"Added vector for segment {segment_id} to FAISS index at internal id {actual_faiss_id}.")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding vector for segment {segment_id} to index: {e}", exc_info=True)
+        return False
+
+    def _search_similar(self, query_vector: np.ndarray, k: int = 5) -> List[Tuple[float, str]]:
+        """Search for similar vectors in the index."""
+        if self.index is None:
+            self.logger.error("FAISS index is not initialized. Cannot search.")
+            return []
+        try:
+            # search_vectors expects a 2D array for queries
+            query_vector_2d = query_vector.reshape(1, -1) if query_vector.ndim == 1 else query_vector
+            distances, indices = search_vectors(self.index, query_vector_2d, k) # faiss_utils.search_vectors
+            
+            results = []
+            # search_vectors from faiss_utils returns distances[0], indices[0] for a single query
+            for dist, idx in zip(distances, indices):
+                if idx != -1 and idx < len(self.faiss_idx_to_id): # FAISS returns -1 for no/invalid neighbors
+                    segment_id = self.faiss_idx_to_id[idx]
+                    results.append((float(dist), segment_id))
+                else:
+                    self.logger.warning(f"Invalid index {idx} returned from FAISS search.")
+            return results
+        except Exception as e:
+            self.logger.error(f"Error searching vectors: {e}", exc_info=True)
+        return []
+
+    async def add_segment(self, 
                    segment_type: str, 
                    content_text: Optional[str] = None,
                    source: Optional[str] = None, 
-                   metadata: Optional[Dict[str, Any]] = None,
                    tool_name: Optional[str] = None, 
                    tool_args: Optional[Dict[str, Any]] = None,
                    tool_output: Optional[str] = None,
-                   importance: float = 0.5) -> str:
-        """
-        Add a new memory segment with appropriate content types.
-        
-        Args:
-            segment_type: Type of memory segment (e.g., "USER_GOAL", "LLM_THOUGHT")
-            content_text: Optional text content
-            source: Source of the segment (e.g., agent name, "USER")
-            metadata: Additional metadata for the segment
-            tool_name: Name of tool if this segment is a tool call or result
-            tool_args: Arguments passed to the tool
-            tool_output: Output from the tool execution
-            importance: Importance score (0.0 to 1.0) for memory retention
-            
-        Returns:
-            str: ID of the created segment
-        """
-        # Create segment content
+                   importance: float = 0.5,
+                   meta: Optional[Dict[str, Any]] = None) -> str:
+        """Add a new memory segment with appropriate content types."""
         segment_content = MemorySegmentContent(
             text=content_text,
             tool_name=tool_name,
@@ -145,282 +196,169 @@ class MemoryManager:
             tool_output=tool_output
         )
         
-        # Create full segment
         segment = MemorySegment(
             type=segment_type,
             source=source or "unknown",
             content=segment_content,
-            metadata=metadata or {},
+            metadata=meta or {},
             importance=importance
         )
         
-        # Generate embedding if we have an embedding model and valid text content
         embedding_text = content_text or tool_output or ""
-        if embedding_text and self.embedding_model:
-            segment.embedding = self._generate_embedding(embedding_text)
+        if embedding_text and self.embedding_model and self.index is not None:
+            embedding = self._generate_embedding(embedding_text)
+            if embedding is not None:
+                segment.embedding = embedding.tolist() # Store as list in MemorySegment
+                self._add_to_index(embedding, segment.id)
         
-        # Add to memory
         self.segments.append(segment)
         
-        # Add to FAISS index if we have an embedding
-        if self.index and segment.embedding is not None:
-            current_idx = self.index.ntotal
-            self.index.add(np.array([segment.embedding]))
-            self.id_to_faiss_idx[segment.id] = current_idx
-            self.faiss_idx_to_id.append(segment.id)
+        try:
+            await self._save_to_disk()
+        except Exception as e:
+            self.logger.error(f"Error saving memory to disk: {e}", exc_info=True)
         
-        # Save after adding 
-        self._save_memory()
-        
-        print(f"[MemoryManager] Added segment: ID={segment.id}, Type='{segment.type}', Source='{segment.source}'")
+        self.logger.info(f"Added segment: ID={segment.id}, Type='{segment.type}', Source='{segment.source}'")
         return segment.id
 
-    def get_formatted_history(self, limit: int = 10, for_llm: bool = True) -> str:
-        """
-        Get recent history formatted for LLM prompts.
-        
-        Args:
-            limit: Maximum number of segments to retrieve
-            for_llm: Whether formatting is for LLM consumption
+    async def _save_to_disk(self):
+        """Save memory segments to disk asynchronously."""
+        if not self.memory_file:
+            self.logger.warning("Memory file path not set. Cannot save to disk.")
+            return
             
-        Returns:
-            str: Formatted history string
-        """
-        relevant_history = self.segments[-limit:] if len(self.segments) > 0 else []
-        formatted_lines = []
-        
-        for seg in relevant_history:
-            # Format timestamp
-            timestamp_str = seg.timestamp.strftime('%Y-%m-%d %H:%M')
+        try:
+            save_data = [seg.model_dump(exclude_none=True) for seg in self.segments]
+            # Embeddings are part of MemorySegment schema, so they will be saved if present.
+            # If they are large and regeneration is preferred, exclude them here.
+            # For now, assume they are saved.
             
-            # Start the line with timestamp, type, and source
-            line = f"[{timestamp_str}] ({seg.type} from {seg.source}): "
-            
-            # Add content based on what's available
-            if seg.content.text:
-                line += seg.content.text
-            elif seg.content.tool_name:
-                args_str = json.dumps(seg.content.tool_args) if seg.content.tool_args else "{}"
-                line += f"Tool Call: {seg.content.tool_name}, Args: {args_str}"
-                if seg.content.tool_output:
-                    # For tool output, keep it concise for prompt
-                    output_preview = seg.content.tool_output
-                    if len(output_preview) > 200:
-                        output_preview = output_preview[:197] + "..."
-                    line += f" → Output: {output_preview}"
-            
-            formatted_lines.append(line)
-        
-        if not formatted_lines:
-            return "No relevant history."
-        
-        return "\n".join(formatted_lines)
-
-    @log_execution_time(logging.getLogger('WITS.MemoryManager'))
-    def semantic_search(self, query: str, limit: int = 5, 
-                       segment_type_filter: Optional[str] = None) -> List[MemorySegment]:
-        """
-        Search for semantically similar segments with performance tracking.
-        
-        Args:
-            query: The search query text
-            limit: Maximum number of results to return
-            segment_type_filter: Optional filter by segment type
-            
-        Returns:
-            List[MemorySegment]: List of relevant memory segments
-        """
-        start_time = time.time()
-        search_debug = MemoryDebugInfo(
-            operation_type="semantic_search",
-            segment_count=len(self.segments),
-            vector_search_used=False,
-            query_length=len(query)
-        )
-        
-        if not self.embedding_model or not self.index or self.index.ntotal == 0:
-            self.logger.warning("Semantic search unavailable (no model, empty index)")
-            
-            if self.debug_enabled:
-                debug_info = DebugInfo(
-                    timestamp=datetime.now().isoformat(),
-                    component="MemoryManager",
-                    action="semantic_search_failed",
-                    details={
-                        "reason": "vector search unavailable",
-                        "has_model": self.embedding_model is not None,
-                        "has_index": self.index is not None,
-                        "index_size": self.index.ntotal if self.index else 0
-                    },
-                    duration_ms=0.0,
-                    success=False,
-                    error="Vector search components not available"
-                )
-                log_debug_info(self.logger, debug_info)
-            return []
-        
-        # Track embedding generation time
-        embed_start = time.time()
-        query_embedding = self._generate_embedding(query)
-        embed_time = (time.time() - embed_start) * 1000  # ms
-        search_debug.embedding_time_ms = embed_time
-        
-        if query_embedding is None:
-            self.logger.warning("Query embedding generation failed")
-            if self.debug_enabled:
-                debug_info = DebugInfo(
-                    timestamp=datetime.now().isoformat(),
-                    component="MemoryManager",
-                    action="semantic_search_failed",
-                    details={"reason": "embedding generation failed", "query": query[:100]},
-                    duration_ms=(time.time() - start_time) * 1000,
-                    success=False,
-                    error="Failed to generate embedding"
-                )
-                log_debug_info(self.logger, debug_info)
-            return []
-        
-        # Track search time
-        search_start = time.time()
-        k_search = min(limit * 3, self.index.ntotal)  # Search for more initially to allow filtering
-        if k_search == 0:
-            return []
-        
-        # Update debug info - we're actually using vector search now
-        search_debug.vector_search_used = True
-        
-        # Perform the search
-        distances, faiss_indices = self.index.search(query_embedding.reshape(1, -1), k_search)
-        search_time = (time.time() - search_start) * 1000  # ms
-        search_debug.search_time_ms = search_time
-        
-        # Process results
-        results: List[MemorySegment] = []
-        matched_segments = set()
-        
-        for i, faiss_idx in enumerate(faiss_indices[0]):
-            if faiss_idx < 0 or faiss_idx >= len(self.faiss_idx_to_id):
-                continue
-            
-            segment_id = self.faiss_idx_to_id[faiss_idx]
-            
-            # Find the segment by ID
-            for segment in self.segments:
-                if segment.id == segment_id:
-                    # Apply type filter if specified
-                    if segment_type_filter is None or segment.type == segment_type_filter:
-                        # Store distance as metadata for debugging/visualization
-                        if not hasattr(segment, 'metadata'):
-                            segment.metadata = {}
-                        segment.metadata["search_distance"] = float(distances[0][i])
-                        results.append(segment)
-                        matched_segments.add(segment_id)
-                    break
-            
-            if len(results) >= limit:
-                break
-                
-        # Log debug info
-        search_debug.match_count = len(results)
-        search_debug.details = {
-            "filter_applied": segment_type_filter is not None,
-            "filter_type": segment_type_filter,
-            "requested_limit": limit,
-            "search_k": k_search
+            async with aiofiles.open(self.memory_file, 'w') as f:
+                await f.write(json.dumps(save_data, indent=2))
+            self.logger.debug(f"Memory saved to {self.memory_file}")
+        except Exception as e:
+            self.logger.error(f"Error saving memory to disk: {e}", exc_info=True)
+    
+    def _check_vector_search_status(self) -> Dict[str, Any]:
+        """Check the status of vector search capabilities."""
+        status = {
+            "vector_search_available": VECTOR_SEARCH_AVAILABLE,
+            "gpu_enabled": VECTOR_SEARCH_GPU, # This is now a top-level constant
+            "embedding_model": self.vector_model_name if self.embedding_model else None,
+            "vector_dimension": self.vector_dim if self.embedding_model else None,
+            "index_type": type(self.index).__name__ if self.index else None,
+            "total_vectors": self.index.ntotal if self.index and hasattr(self.index, 'ntotal') else 0,
         }
         
-        total_time = (time.time() - start_time) * 1000
-        
-        # Log complete debug info
-        if self.debug_enabled and self.debug_config and getattr(self.debug_config, 'log_searches', False):
+        if self.debug_enabled:
             debug_info = DebugInfo(
                 timestamp=datetime.now().isoformat(),
                 component="MemoryManager",
-                action="semantic_search",
-                details={
-                    "query": query[:100] + "..." if len(query) > 100 else query,
-                    "segment_type_filter": segment_type_filter,
-                    "limit": limit,
-                    "found_count": len(results),
-                    "embedding_time_ms": search_debug.embedding_time_ms,
-                    "search_time_ms": search_debug.search_time_ms,
-                    "total_time_ms": total_time
-                },
-                duration_ms=total_time,
+                action="check_vector_search_status",
+                details=status,
+                duration_ms=0, # This is a status check, not a timed operation
                 success=True
             )
             log_debug_info(self.logger, debug_info)
-            
-            # Log performance data if enabled
-            if getattr(self.debug_config, 'log_performance', False):
-                self.logger.debug(
-                    f"Performance: semantic_search - "
-                    f"Embedding: {search_debug.embedding_time_ms:.2f}ms, "
-                    f"Search: {search_debug.search_time_ms:.2f}ms, "
-                    f"Total: {total_time:.2f}ms, "
-                    f"Results: {len(results)}/{k_search}"
-                )
-                
-        return results
-
-    @log_execution_time(logging.getLogger('WITS.MemoryManager'))
-    def remember_agent_output(self, agent_name: str, output: str) -> Optional[str]:
-        """Store the most recent output from a specific agent."""
-        if not agent_name:
-            if self.debug_enabled:
-                self.logger.warning("Attempted to remember agent output with no agent name")
-            return None
         
-        agent_name_lower = agent_name.lower()
-        self.last_agent_output[agent_name_lower] = output
-        self.last_agent_name = agent_name_lower
-        
-        # Also save it as a memory segment
-        segment_id = self.add_segment(
-            segment_type="AGENT_OUTPUT",
-            content_text=output,
-            source=agent_name_lower,
-            importance=0.6  # Medium-high importance
-        )
-        
-        return segment_id
+        return status
 
-    def recall_agent_output(self, agent_name: str) -> Optional[str]:
-        """Retrieve the most recent output from a specific agent."""
-        if not agent_name:
-            return None
-        
-        return self.last_agent_output.get(agent_name.lower())
-
-    def get_last_agent(self) -> Optional[str]:
-        """Get the name of the last agent that provided output."""
-        return self.last_agent_name
-
-    async def initialize_db_async(self):
-        """Initialize the database asynchronously."""
+    async def initialize_db(self):
+        """Initialize the memory database from disk and rebuild FAISS index."""
+        self.logger.info("Initializing memory database...")
         try:
             if os.path.exists(self.memory_file):
-                async with aiofiles.open(self.memory_file, 'r', encoding='utf-8') as f:
+                async with aiofiles.open(self.memory_file, 'r') as f:
                     content = await f.read()
-                    data = json.loads(content)
-                    # Load segments
-                    for segment_data in data.get('segments', []):
-                        segment = MemorySegment(**segment_data)
-                        self.segments.append(segment)
-                        # Add to FAISS index if we have embeddings
-                        if hasattr(segment, 'embedding') and segment.embedding is not None:
-                            vector = np.array(segment.embedding).astype(np.float32).reshape(1, -1)
-                            self.index.add(vector)
-                            self.id_to_faiss_idx[segment.id] = len(self.faiss_idx_to_id)
-                            self.faiss_idx_to_id.append(segment.id)
-                    print(f"[MemoryManager] Loaded {len(self.segments)} segments from {self.memory_file}")
-            else:
-                print(f"[MemoryManager] No memory file found at {self.memory_file}. Starting with empty memory.")
-                # Create the directory if it doesn't exist
-                os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+                    if not content:
+                        self.logger.info(f"Memory file {self.memory_file} is empty. Starting with no segments.")
+                        self.segments = []
+                    else:
+                        loaded_segments_data = json.loads(content)
+                        self.segments = [MemorySegment(**seg_data) for seg_data in loaded_segments_data]
                 
+                self.logger.info(f"Loaded {len(self.segments)} segments from {self.memory_file}")
+                
+                # Rebuild FAISS index if it's initialized and segments were loaded
+                if self.index is not None and self.segments:
+                    self.logger.info("Rebuilding FAISS index from loaded segments...")
+                    # Clear existing index mappings before rebuilding
+                    self.id_to_faiss_idx.clear()
+                    self.faiss_idx_to_id.clear()
+                    # It's safer to create a new index instance or reset the existing one
+                    if isinstance(self.vector_dim, int):
+                         self.index = create_gpu_index(self.vector_dim, RES, CUDA_DEVICE) # Recreate/reset
+                    else:
+                        self.logger.error("Cannot rebuild FAISS index: vector_dim is not an integer.")
+                        # Potentially raise an error or handle as a critical failure
+                        return
+
+
+                    for segment in self.segments:
+                        if segment.embedding: # If embedding was saved
+                            embedding_np = np.array(segment.embedding, dtype=np.float32)
+                            self._add_to_index(embedding_np, segment.id)
+                        else: # If embedding needs to be regenerated
+                            embedding_text = segment.content.text or segment.content.tool_output or ""
+                            if embedding_text and self.embedding_model:
+                                embedding_np = self._generate_embedding(embedding_text)
+                                if embedding_np is not None:
+                                    segment.embedding = embedding_np.tolist()
+                                    self._add_to_index(embedding_np, segment.id)
+                    self.logger.info(f"FAISS index rebuilt with {self.index.ntotal if self.index else 0} vectors.")
+            else:
+                self.logger.info(f"No existing memory file found at {self.memory_file}. Creating directory if needed.")
+                os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+            
+            status = self._check_vector_search_status()
+            self.logger.info(f"Memory database initialization complete. Vector search status: {json.dumps(status, indent=2)}")
+        
         except Exception as e:
-            print(f"[MemoryManager_ERROR] Error loading memory: {e}")
-            # Start with empty memory
-            self.segments = []
-            self.id_to_faiss_idx = {}
+            self.logger.critical(f"Failed to initialize memory database: {e}", exc_info=True)
+            # This is a critical failure, re-raise to stop application if memory can't init
+            raise RuntimeError(f"Failed to initialize memory database: {e}") from e
+
+    async def search_memory(self, query_text: str, k: int = 5) -> List[Dict[str, Any]]:
+        """Search memory for segments similar to the query text."""
+        if not self.embedding_model or not self.index:
+            self.logger.warning("Embedding model or FAISS index not available for search.")
+            return []
+
+        query_embedding = self._generate_embedding(query_text)
+        if query_embedding is None:
+            self.logger.warning(f"Could not generate embedding for query: {query_text}")
+            return []
+
+        search_results_tuples = self._search_similar(query_embedding, k)
+        
+        # Retrieve full segment data for search results
+        final_results = []
+        for dist, segment_id in search_results_tuples:
+            segment = next((s for s in self.segments if s.id == segment_id), None)
+            if segment:
+                final_results.append({
+                    "segment_id": segment.id,
+                    "score": 1 - (dist / (self.vector_dim if self.vector_dim and self.vector_dim > 0 else 1)), # Normalize L2 to similarity
+                    "content": segment.content.model_dump(),
+                    "source": segment.source,
+                    "type": segment.type,
+                    "timestamp": segment.timestamp.isoformat(),
+                    "importance": segment.importance
+                })
+            else:
+                self.logger.warning(f"Segment ID {segment_id} from search result not found in memory segments.")
+        
+        # Sort by score descending
+        final_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        if self.debug_enabled:
+             log_debug_info(self.logger, DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="MemoryManager",
+                action="search_memory",
+                details={"query": query_text, "k": k, "num_results": len(final_results)},
+                success=True # Assuming search itself doesn't fail here
+            ))
+        return final_results
+
+    # ... (other methods like goal management, pruning, etc. would go here)

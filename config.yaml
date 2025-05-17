@@ -2,10 +2,12 @@
 # WITS-NEXUS v2 Configuration
 
 # General Settings
-internet_access: true
+internet_access: false
 allow_code_execution: false # Default to false for safety
 ethics_enabled: true
 output_directory: "output" # Relative to project root
+debug_mode: true # Enable debug mode
+skip_llm_initialization: true # Skip LLM initialization for testing
 
 # Voice Input Settings (Optional)
 voice_input: false
