@@ -4,7 +4,8 @@ import logging.handlers
 import os
 import sys
 from datetime import datetime
-from typing import Optional, Dict, Any, Callable, TypeVar, Union
+from typing import Optional, Dict, Any, Callable, TypeVar, Union, Awaitable
+from typing_extensions import ParamSpec
 from functools import wraps
 import time
 import json
@@ -13,7 +14,12 @@ from pathlib import Path
 from pydantic import BaseModel
 
 # Type variable for decorators
+P = ParamSpec('P')
+R = TypeVar('R')
 F = TypeVar('F', bound=Callable[..., Any])
+
+# Helper type alias for async functions
+AsyncCallable = Callable[P, Awaitable[R]]
 
 class DebugInfo(BaseModel):
     """Structured debug information for all components."""
@@ -156,9 +162,9 @@ def log_execution_time(logger: logging.Logger):
     def my_function():
         ...
     """
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start_time = time.time()
             
             try:
@@ -171,7 +177,7 @@ def log_execution_time(logger: logging.Logger):
                     action=func.__name__,
                     details={
                         'args': str(args) if args else None,
-                        'kwargs': str(kwargs) if kwargs else None,
+                        'kwargs': str(kwargs) if kwargs else None
                     },
                     duration_ms=execution_time,
                     success=True
@@ -211,9 +217,9 @@ def log_async_execution_time(logger: logging.Logger):
     async def my_async_function():
         ...
     """
-    def decorator(func: F) -> F:
+    def decorator(func: AsyncCallable[P, R]) -> AsyncCallable[P, R]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start_time = time.time()
             
             try:
@@ -258,5 +264,3 @@ def log_async_execution_time(logger: logging.Logger):
                 
         return wrapper
     return decorator
-
-# Keeping the existing PerformanceMonitor class instead of this duplicate
