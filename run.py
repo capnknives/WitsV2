@@ -67,7 +67,6 @@ async def start_wits_cli(config: AppConfig):
     
     git_tool = GitTool(config.model_dump())
     tool_registry.register_tool(git_tool)
-    tool_registry.register_tool(write_file_tool)
     
     list_files_tool = ListFilesTool(config.model_dump())
     tool_registry.register_tool(list_files_tool)
