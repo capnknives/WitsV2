@@ -26,57 +26,83 @@ debug_data_cache = {
         "agents": [],
         "last_updated": 0
     },
-    "logs": {
-        "logs": [],
-        "last_updated": 0
-    }
+    "logs": {}  # Changed to an empty dict to support per-log-type caching
 }
 
 # Cache expiration time in seconds
 CACHE_EXPIRATION = 15
 
 # Process and parse log entries from files
-def parse_log_files():
-    """Parse the log files to extract structured data."""
+def parse_log_files(log_type: Optional[str] = None): # Added log_type parameter
+    """Parse the log files to extract structured data, optionally filtering by log_type."""
     logs = []
     log_dir = os.path.join(os.getcwd(), "logs")
     
     if not os.path.exists(log_dir):
         return []
     
-    # Find the most recent debug log file
-    log_files = [f for f in os.listdir(log_dir) if f.startswith('wits_debug')]
-    if not log_files:
+    # Read from both debug and error logs, combine and sort later if necessary, or handle specific files
+    log_files_to_check = []
+    if os.path.exists(os.path.join(log_dir, 'wits_debug.log')):
+        log_files_to_check.append(os.path.join(log_dir, 'wits_debug.log'))
+    if os.path.exists(os.path.join(log_dir, 'wits_error.log')):
+        log_files_to_check.append(os.path.join(log_dir, 'wits_error.log'))
+
+    if not log_files_to_check:
         return []
     
-    log_files.sort(reverse=True)
-    log_file_path = os.path.join(log_dir, log_files[0])
+    raw_log_entries = []
+    for log_file_path in log_files_to_check:
+        try:
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                # Read last N lines for performance, e.g., 1000 lines per file
+                raw_log_entries.extend(f.readlines()[-1000:]) 
+        except Exception as e:
+            print(f"Error reading log file {log_file_path}: {e}")
+            continue
     
-    # Process the log file
-    with open(log_file_path, 'r') as f:
-        for line in f.readlines()[-1000:]:  # Read the last 1000 lines for performance
-            try:
-                # Parse log line
-                parts = line.strip().split(' | ')
-                if len(parts) < 3:
-                    continue
-                    
-                timestamp_str, level, component_msg = parts[:3]
-                component_parts = component_msg.split(' - ', 1)
-                component = component_parts[0] if len(component_parts) > 0 else "unknown"
-                message = component_parts[1] if len(component_parts) > 1 else component_msg
-                
-                logs.append({
-                    "timestamp": timestamp_str,
-                    "level": level.strip(),
-                    "component": component.strip(),
-                    "message": message.strip()
-                })
-            except Exception as e:
-                print(f"Error parsing log line: {e}")
+    # Sort by timestamp if combining from multiple files (assuming consistent timestamp format)
+    # For simplicity, current parsing processes them sequentially. A more robust solution
+    # would parse timestamps and sort all entries if true chronological order is needed.
+
+    for line in raw_log_entries: # Process the collected lines
+        try:
+            parts = line.strip().split(' | ')
+            if len(parts) < 3:
                 continue
+            
+            timestamp_str, level_str, component_msg = parts[0], parts[1], ' | '.join(parts[2:])
+            component_parts = component_msg.split(' - ', 1)
+            component = component_parts[0].strip() if len(component_parts) > 0 else "unknown"
+            message = component_parts[1].strip() if len(component_parts) > 1 else component_msg.strip()
+            level = level_str.strip().upper()
+
+            # Filter by log_type if specified
+            if log_type:
+                if log_type == "error" and level != "ERROR":
+                    continue
+                if log_type == "warning" and level != "WARNING":
+                    continue
+                # For "all", no level filtering here, or if log_type is not "error" or "warning"
+            
+            logs.append({
+                "timestamp": timestamp_str.strip(),
+                "level": level,
+                "component": component,
+                "message": message
+            })
+        except Exception as e:
+            print(f"Error parsing log line: '{line[:100]}...': {e}") # Log the problematic line
+            continue
     
-    return logs[-100:]  # Return the last 100 parsed log entries
+    # Sort logs by timestamp (assuming standard format that sorts chronologically as strings)
+    # A more robust sort would parse datetime objects.
+    try:
+        logs.sort(key=lambda x: x["timestamp"], reverse=True)
+    except Exception as e:
+        print(f"Could not sort logs by timestamp: {e}")
+
+    return logs[:200] # Return the last 200 combined and filtered log entries
 
 # Extract performance data from logs
 def extract_performance_data():
@@ -144,6 +170,8 @@ def extract_performance_data():
         performance_data[category].sort(key=lambda x: x["timestamp"], reverse=True)
         performance_data[category] = performance_data[category][:50]  # Keep only the latest 50
     
+    # Add last_updated timestamp to the performance data itself
+    performance_data["last_updated"] = int(time.time())
     return performance_data
 
 # Calculate system metrics
@@ -190,38 +218,61 @@ async def get_debug_metrics():
     
     # Check if we need to refresh the cache
     current_time = time.time()
-    if (current_time - debug_data_cache["metrics"]["last_updated"]) > CACHE_EXPIRATION:
-        debug_data_cache["metrics"] = calculate_metrics()
-        debug_data_cache["metrics"]["last_updated"] = int(current_time)
+    if (current_time - debug_data_cache["metrics"].get("last_updated", 0)) > CACHE_EXPIRATION: # Added .get for safety
+        calculated_metrics = calculate_metrics() # Store calculated metrics
+        debug_data_cache["metrics"] = {**calculated_metrics, "last_updated": int(current_time)} # Merge and update timestamp
     
     return debug_data_cache["metrics"]
 
-@debug_router.get("/performance", response_model=Dict[str, Any])
-async def get_performance_data():
-    """Get performance data for all components."""
+@debug_router.get("/performance/{component_name}", response_model=List[Dict[str, Any]])
+async def get_component_performance_data(component_name: str):
+    """Get performance data for a specific component."""
     global debug_data_cache
-    
-    # Check if we need to refresh the cache
     current_time = time.time()
-    if (current_time - debug_data_cache["performance"]["last_updated"]) > CACHE_EXPIRATION:
-        latest_performance_metrics = extract_performance_data()
-        debug_data_cache["performance"]["llm_interface"] = latest_performance_metrics.get("llm_interface", [])
-        debug_data_cache["performance"]["memory_manager"] = latest_performance_metrics.get("memory_manager", [])
-        debug_data_cache["performance"]["tools"] = latest_performance_metrics.get("tools", [])
-        debug_data_cache["performance"]["agents"] = latest_performance_metrics.get("agents", [])
-        debug_data_cache["performance"]["last_updated"] = int(current_time)
-    
-    return debug_data_cache["performance"]
 
-@debug_router.get("/logs", response_model=Dict[str, Any])
-async def get_debug_logs():
-    """Get recent system logs."""
+    # Check if performance data cache needs refresh
+    if (current_time - debug_data_cache["performance"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["performance"] = extract_performance_data() 
+        # extract_performance_data now adds its own "last_updated" key
+
+    component_data = debug_data_cache["performance"].get(component_name)
+    if component_data is None:
+        # Try replacing hyphen with underscore if JS sends that way e.g. llm-interface
+        component_data = debug_data_cache["performance"].get(component_name.replace('-', '_'))
+
+    if component_data is None:
+        raise HTTPException(status_code=404, detail=f"Performance data for component '{component_name}' not found.")
+    
+    return component_data
+
+
+@debug_router.get("/logs/{log_type}", response_model=Dict[str, Any])
+async def get_typed_logs(log_type: str):
+    """Get logs filtered by type (all, error, warning)."""
     global debug_data_cache
-    
-    # Check if we need to refresh the cache
     current_time = time.time()
-    if (current_time - debug_data_cache["logs"]["last_updated"]) > CACHE_EXPIRATION:
-        debug_data_cache["logs"]["logs"] = parse_log_files()
-        debug_data_cache["logs"]["last_updated"] = int(current_time)
     
-    return debug_data_cache["logs"]
+    # For logs, we might want to parse them more frequently or on demand,
+    # as they can change rapidly. Caching strategy might differ from metrics/performance.
+    # For now, let's use a similar cache, but keyed by log_type.
+
+    cache_key = f"logs_{log_type}"
+    if cache_key not in debug_data_cache["logs"] or \
+       (current_time - debug_data_cache["logs"][cache_key].get("last_updated", 0)) > CACHE_EXPIRATION / 2: # Shorter cache for logs
+        
+        parsed_logs = []
+        if log_type == "all":
+            parsed_logs = parse_log_files()
+        elif log_type == "error":
+            parsed_logs = parse_log_files(log_type="error")
+        elif log_type == "warning":
+            parsed_logs = parse_log_files(log_type="warning")
+        else:
+            raise HTTPException(status_code=400, detail="Invalid log type. Must be 'all', 'error', or 'warning'.")
+            
+        debug_data_cache["logs"][cache_key] = {
+            "logs": parsed_logs,
+            "last_updated": int(current_time)
+        }
+        
+    return debug_data_cache["logs"][cache_key]

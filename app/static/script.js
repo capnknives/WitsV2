@@ -235,12 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const currentAgentProfile = agentSelect.value; // Get currently selected agent profile
 
-        try {
-            const response = await fetch('/api/chat_stream', {
+        try {            const response = await fetch('/api/chat_stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    goal: goal,
+                    message: goal,  // Use 'message' for better conversational UX
+                    goal: goal,     // Keep 'goal' for backward compatibility
                     session_id: currentSessionId,
                     agent_profile_name: currentAgentProfile // Send the selected agent profile
                 })
@@ -275,20 +275,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = (data.type === 'final_answer' || data.type === 'user_goal') ? conversationDiv : thinkingProcessDiv;
         let prefix = '';
         if (data.type === 'final_answer') prefix = 'Agent Answer:';
-        // else if (data.type === 'user_goal') prefix = 'Your Goal:'; // Already handled
+        else if (data.type === 'user_goal') prefix = 'You:'; // Changed from 'USER_GOAL'
         addMessageToLog(data, target, prefix);
     }
 
     function addMessageToLog(data, targetDiv, prefix = '') {
         const messageElement = document.createElement('div');
         messageElement.classList.add('log-message', `log-${data.type}`);
-        let contentHTML = `<strong>${prefix || data.type.replace(/_/g, ' ').toUpperCase()}:</strong> `;
         
-        if (data.type === 'prompt_context' && data.data) { // Handle nested data for prompt_context
+        let displayPrefix = prefix; // Use the passed prefix first
+
+        // If no prefix was passed (e.g. for thinking steps) or if it's not a special case handled by prefix,
+        // then create a default prefix from data.type.
+        // The 'user_goal' type should now always come with "You:" as prefix from handleStreamedData.
+        if (!displayPrefix && data.type) { 
+            displayPrefix = data.type.replace(/_/g, ' ').toUpperCase();
+        }
+
+        let contentHTML = `<strong>${escapeHtml(displayPrefix)}:</strong> `;
+        
+        if (data.type === 'prompt_context' && data.data) { 
             contentHTML += `<pre>${JSON.stringify(data.data, null, 2)}</pre>`;
         } else if (typeof data.content === 'object') {
             contentHTML += `<pre>${JSON.stringify(data.content, null, 2)}</pre>`;
         } else if (data.content !== undefined) {
+            // For user_goal, the content is the goal itself.
+            // For final_answer, content is the answer.
+            // For other types, content is what it is.
             contentHTML += escapeHtml(String(data.content));
         }
 
@@ -297,6 +310,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.iteration !== undefined) contentHTML += ` Iteration: ${data.iteration}/${data.max_iterations}`;
         
         messageElement.innerHTML = contentHTML;
+        
+        // Clear "Your conversation will appear here" if it exists
+        const emptyStateConversation = conversationDiv.querySelector('.empty-state');
+        if (emptyStateConversation && (data.type === 'user_goal' || data.type === 'final_answer')) {
+            conversationDiv.innerHTML = ''; // Clear only if it's the initial message
+        }
+        // Clear "Agent's reasoning..." if it exists and we are adding to thinkingProcessDiv
+        const emptyStateThinking = thinkingProcessDiv.querySelector('.empty-state');
+         if (emptyStateThinking && targetDiv === thinkingProcessDiv && thinkingProcessDiv.children.length <= 1) { // Check if only h3 and empty state
+            thinkingProcessDiv.innerHTML = '<h3><i class="fas fa-brain"></i> Agent Thinking Process:</h3>'; // Clear only if it's the initial message
+        }
+
         targetDiv.appendChild(messageElement);
         targetDiv.scrollTop = targetDiv.scrollHeight;
     }

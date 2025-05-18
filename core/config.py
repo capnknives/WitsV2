@@ -66,13 +66,18 @@ class GitIntegrationConfig(BaseModel):
 
 class AgentProfileConfig(BaseModel):
     """Configuration for an agent profile."""
+    agent_class: Optional[str] = None # Added agent_class
     agent_type: str = "orchestrator"  # Default to orchestrator
     llm_model_name: Optional[str] = None
     temperature: float = 0.7
     max_iterations: int = 5
+    orchestrator_max_iterations: int = 10  # Added this attribute to match AppConfig
     tool_names: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
     agent_specific_params: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        extra = 'ignore' # Ignore extra fields from YAML not defined in Pydantic model
 
 class AppConfig(BaseModel):
     app_name: str = "WITS-NEXUS v2"
@@ -80,6 +85,7 @@ class AppConfig(BaseModel):
     allow_code_execution: bool = False
     ethics_enabled: bool = True
     output_directory: str = Field(default="output")
+    default_temperature: Optional[float] = 0.7 # Added default_temperature
     voice_input_enabled: bool = Field(False, alias="voice_input")
     voice_input_duration_seconds: int = Field(5, alias="voice_input_duration")
     whisper_model_name: str = Field("base", alias="whisper_model")

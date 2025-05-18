@@ -1,3 +1,4 @@
+# filepath: c:\WITS\wits_nexus_v2\agents\base_agent.py.new
 # agents/base_agent.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -13,13 +14,23 @@ class BaseAgent(ABC):
         self.llm = llm_interface
         self.memory = memory_manager
         print(f"[{self.agent_name}] Initialized.")
-
+        
     def _get_agent_specific_config(self, full_config: Any) -> Dict[str, Any]:
         # Helper to extract model name or other agent-specific settings
-        agent_model_key = self.agent_name.lower().replace("_agent", "") # e.g. orchestrator_agent -> orchestrator
-        model_name = getattr(full_config.models, agent_model_key, full_config.models.default)
-
-        return {"model_name": model_name}
+        
+        # Check if this is an AgentProfileConfig (from app/utils.py)
+        if hasattr(full_config, "llm_model_name"):
+            model_name = full_config.llm_model_name
+            return {"model_name": model_name}
+            
+        # Handle case when it's the full AppConfig
+        if hasattr(full_config, "models"):
+            agent_model_key = self.agent_name.lower().replace("_agent", "") # e.g. orchestrator_agent -> orchestrator
+            model_name = getattr(full_config.models, agent_model_key, full_config.models.default)
+            return {"model_name": model_name}
+            
+        # Default case - use a generic empty config with default model
+        return {"model_name": "llama3"}
 
 
     @abstractmethod

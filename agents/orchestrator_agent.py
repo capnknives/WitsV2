@@ -9,13 +9,13 @@ from .base_agent import BaseAgent
 from core.llm_interface import LLMInterface
 from core.tool_registry import ToolRegistry
 from core.memory_manager import MemoryManager
-from core.debug_utils import log_async_execution_time # Assuming this decorator is defined
+from core.debug_utils import log_async_execution_time
 from core.schemas import (
     LLMToolCall,
     OrchestratorLLMResponse,
     OrchestratorThought,
     OrchestratorAction,
-    MemorySegment # Assuming MemorySegment is used for self.memory.add_segment
+    MemorySegment
 )
 
 class AgentDelegationRequest(BaseModel):
@@ -416,3 +416,18 @@ GUIDELINES FOR DELEGATION:
 Current Thought & Action Plan (as JSON):
 """
         return prompt
+
+def log_async_execution_time(func):
+    """Decorator to log execution time of async functions."""
+    async def wrapper(*args, **kwargs):
+        start_time = time.monotonic()
+        try:
+            # Call the actual async function
+            result = await func(*args, **kwargs)
+            return result
+        finally:
+            end_time = time.monotonic()
+            duration = end_time - start_time
+            # Log the execution time
+            logging.info(f"Executed {func.__name__} in {duration:.4f} seconds")
+    return wrapper

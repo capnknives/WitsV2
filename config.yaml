@@ -23,11 +23,13 @@ models:
   analyst: "openhermes:latest"
   engineer: "codellama:7b"
   researcher: "llama3"
+  coder: "codellama:7b"
   # Add other specialized agent models if needed
 
 # Router Configuration (Orchestrator is usually the primary handler)
 router:
   fallback_agent: "orchestrator_agent" # Key for your orchestrator agent instance
+  
 
 # Web Interface Settings (Flask/FastAPI)
 web_interface:
@@ -37,8 +39,10 @@ web_interface:
   debug: true # Flask/FastAPI debug mode
   enable_file_uploads: true
   max_file_size: 10 # In MB
+  allowed_file_types: ["text/plain", "application/json", "application/yaml", "text/yaml"]
+  file_upload_directory: "uploads" # Directory to save uploaded files
+  
 
-  # ... your existing config ...
 
 ollama_url: "http://localhost:11434"
 llm_model_name: "llama3:latest" # Default model
@@ -61,9 +65,23 @@ orchestrator_max_iterations: 15 # Max steps in a ReAct loop for a single goal
 
 # Agent Profiles
 agent_profiles:
+  general_orchestrator:
+    agent_class: "agents.orchestrator_agent.OrchestratorAgent"
+    llm_model_name: "openhermes:latest" # Corrected from model
+    temperature: 0.7
+    tool_names:
+      - "calculator"
+      - "datetime"
+      - "web_search" # If internet_access is true
+      - "read_file"
+      - "write_file"
+      - "list_files"
+    max_iterations: 15
+    # You can add a system_prompt_override here if needed
+    # system_prompt_override: "You are a helpful general assistant."
   engineer:
     agent_class: "agents.specialized.engineer_agent.EngineerAgent"
-    model: "codellama:7b"
+    llm_model_name: "codellama:7b" # Corrected from model
     temperature: 0.2  # Lower temperature for more precise coding tasks
     tool_names: 
       - "project_file_reader"

@@ -6,6 +6,7 @@ import sys
 import time
 import logging
 from datetime import datetime
+import uvicorn # Added import for Uvicorn
 
 # Ensure the project root is in sys.path to allow imports from core, agents, tools
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -230,20 +231,20 @@ async def start_wits_cli(config: AppConfig):
             log_debug_info(logger, debug_info)
 
 def start_wits_web_app(config: AppConfig):
-    print("Starting WITS-NEXUS v2 Web App (Placeholder)...")
+    print("Starting WITS-NEXUS v2 Web App...")
     # This will be implemented similarly to your v1 app.py, but using the new v2 components
-    # For now, this function will just be a placeholder
-    print("Web app functionality to be built in app/main.py using Flask or FastAPI.")
+    print(f"Web app (FastAPI) configured to run via Uvicorn.")
     print(f"Configured web host: {config.web_interface.host}, port: {config.web_interface.port}")
-    # try:
-    #     from app.main import app as flask_app 
-    #     web_cfg = config.web_interface
-    #     print(f"Attempting to start Flask server on http://{web_cfg.host}:{web_cfg.port}")
-    #     flask_app.run(host=web_cfg.host, port=web_cfg.port, debug=web_cfg.debug)
-    # except ImportError:
-    #     print("[WEB_ERROR] Could not import Flask app from app.main. Ensure it's set up.")
-    # except Exception as e:
-    #     print(f"[WEB_ERROR] Failed to start web application: {e}")
+    try:
+        # Import the FastAPI app instance from app.main
+        # from app.main import app as fastapi_app # No longer needed to import app directly for uvicorn.run string usage
+        web_cfg = config.web_interface
+        print(f"Attempting to start Uvicorn server for FastAPI app on http://{web_cfg.host}:{web_cfg.port}")
+        uvicorn.run("app.main:app", host=web_cfg.host, port=web_cfg.port, reload=web_cfg.debug) # Use uvicorn.run
+    except ImportError:
+        print("[WEB_ERROR] Could not find app.main or the FastAPI app instance within it. Ensure it's set up correctly.")
+    except Exception as e:
+        print(f"[WEB_ERROR] Failed to start web application with Uvicorn: {e}")
 
 def main_entry():
     parser = argparse.ArgumentParser(description="WITS-NEXUS v2: Modular AI System with MCP Orchestrator")

@@ -1,0 +1,13 @@
+[33mcommit 2f8c8ae3f1a2c797efb8a3edab9c3aa20b3ed6f7[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Andy <captain.knives@gmail.com>
+Date:   Sun May 18 15:59:15 2025 -0500
+
+    Add setup_cuda.py for CUDA environment diagnostics
+    
+    This diagnostic tool helps users check CUDA configuration details including:
+    - CUDA environment variables
+    - PyTorch CUDA availability
+    - GPU device information
+    - CUDA version information
+    
+    It's an essential troubleshooting tool for the FAISS-GPU integration.
