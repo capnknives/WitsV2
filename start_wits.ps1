@@ -34,6 +34,31 @@ if (-not $envExists) {
 Write-Host "Activating conda environment..." -ForegroundColor Cyan
 conda activate faiss_gpu_env2
 
-# Run the application
-Write-Host "Running the application..." -ForegroundColor Green
-python run.py
+# Remove any existing venv from PATH to prevent conflicts
+$venvPath = Join-Path $PSScriptRoot "venv\Scripts"
+if ($env:PATH -like "*$venvPath*") {
+    Write-Host "Removing local venv from PATH to prevent conflicts..." -ForegroundColor Yellow
+    $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne $venvPath }) -join ';'
+}
+
+# Find and use Python 3.10 specifically
+Write-Host "Finding Python 3.10 executable..." -ForegroundColor Cyan
+$pythonPath = "$env:CONDA_PREFIX\python.exe"
+if (Test-Path $pythonPath) {
+    Write-Host "Using Python from conda environment: $pythonPath" -ForegroundColor Green
+    
+    # Verify Python version
+    $pythonVersion = & $pythonPath -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+    if ($pythonVersion.Trim() -eq "3.10") {
+        Write-Host "Confirmed Python version: $pythonVersion" -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: Expected Python 3.10 but found $pythonVersion" -ForegroundColor Yellow
+    }
+    
+    # Run the application
+    Write-Host "Running the application..." -ForegroundColor Green
+    & $pythonPath run.py
+} else {
+    Write-Host "Error: Could not find Python executable in conda environment!" -ForegroundColor Red
+    exit 1
+}

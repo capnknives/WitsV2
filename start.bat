@@ -107,8 +107,17 @@ IF "%ACTIVATION_SUCCESSFUL%"=="1" (
 
 echo.
 echo Launching WITS-NEXUS application in a new window...
+
+REM Find specific Python 3.10 executable in conda environment
+echo Verifying environment uses Python 3.10...
+FOR /F "tokens=* USEBACKQ" %%F IN (`conda run -n %ENV_NAME% --no-capture-output python -c "import sys; import os; print(os.path.join(os.environ['CONDA_PREFIX'], 'python.exe'))"`) DO (
+    SET CONDA_PYTHON_PATH=%%F
+)
+
 REM Ensure the new window also activates the environment and changes to the project directory
-start "WITS-NEXUS Server" cmd /k "conda activate %ENV_NAME% && cd /D "%PROJECT_ROOT%" && python run.py && pause"
+REM and explicitly uses the conda environment's Python 3.10 executable
+echo Using Python executable: %CONDA_PYTHON_PATH%
+start "WITS-NEXUS Server" cmd /k "conda activate %ENV_NAME% && cd /D "%PROJECT_ROOT%" && "%CONDA_PYTHON_PATH%" run.py && pause"
 
 IF ERRORLEVEL 1 (
     echo.

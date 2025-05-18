@@ -2,9 +2,41 @@
 
 WITSAI is an advanced AI system built on the WITS-NEXUS framework, designed to provide powerful, extensible, and ethical AI capabilities through a modular architecture.
 
+## Requirements
+
+- **Python 3.10.x** - This project requires Python 3.10 specifically for compatibility with FAISS-GPU and other dependencies
+- **CUDA-compatible GPU** - For GPU-accelerated vector search and embeddings
+- **Conda Environment** - Used to manage Python version and GPU-related dependencies
+
+## Quick Start
+
+### Running the Application
+
+1. **Use the provided startup scripts** (recommended):
+   ```
+   .\start_wits.ps1   # PowerShell
+   ```
+   or
+   ```
+   start.bat          # Command Prompt
+   ```
+   These scripts automatically ensure the correct Python version and environment are used.
+
+2. **Manual activation** (if needed):
+   ```
+   conda activate faiss_gpu_env2
+   python run.py
+   ```
+
+3. **Verify your environment**:
+   ```
+   conda activate faiss_gpu_env2
+   python verify_environment.py
+   ```
+
 ## Key Features
 
-- 🧠 **Advanced Memory Management** - Vector-based semantic search with FAISS
+- 🧠 **Advanced Memory Management** - Vector-based semantic search with FAISS-GPU
 - 🛠️ **Extensible Tool System** - Easily add new capabilities through modular tools
 - 🤖 **Multiple Specialized Agents** - Dedicated agents for different tasks
 - 🌐 **Web Interface** - Modern FastAPI-based web interface
@@ -104,30 +136,6 @@ WITS-NEXUS v2 uses a structured approach where:
     ```
 
 5.  Enter your goal at the WITS v2 prompt.
-
-## Quick Start
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/WITSAI.git
-cd WITSAI
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Set up configuration:
-```bash
-cp config.yaml.example config.yaml
-# Edit config.yaml with your settings
-```
-
-4. Start the application:
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
 
 ## Project Structure
 

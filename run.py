@@ -1,4 +1,25 @@
+#!/usr/bin/env python3.10
 # run.py - Main entry point for WITS-NEXUS v2
+
+# ============================================================================
+# IMPORTANT: This application requires Python 3.10 specifically.
+# For best results, run using the startup scripts:
+#   - PowerShell: .\start_wits.ps1
+#   - Command Prompt: start.bat
+# Or activate the conda environment: conda activate faiss_gpu_env2
+# ============================================================================
+
+# Check Python version
+import sys
+
+if sys.version_info.major != 3 or sys.version_info.minor != 10:
+    print("=" * 80)
+    print(f"WARNING: This application requires Python 3.10 specifically.")
+    print(f"Current Python version: {sys.version_info.major}.{sys.version_info.minor}")
+    print("You may encounter errors or reduced functionality.")
+    print("Please use the startup scripts or activate the proper conda environment.")
+    print("=" * 80)
+
 import asyncio
 import argparse
 import os

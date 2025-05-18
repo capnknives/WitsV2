@@ -53,7 +53,18 @@ def main() -> None:
     print_header("WITS Nexus v2 Environment Check")
     
     # System information
-    print(f"Python version: {platform.python_version()}")
+    python_version = platform.python_version()
+    print(f"Python version: {python_version}")
+    
+    # Check for correct Python version (3.10.x)
+    python_major, python_minor, _ = map(int, python_version.split('.', 2))
+    if python_major == 3 and python_minor == 10:
+        print(f"✓ CORRECT Python version: {python_version}")
+    else:
+        print(f"✗ INCORRECT Python version: {python_version}")
+        print(f"  Required: Python 3.10.x")
+        print(f"  This application requires Python 3.10.x for compatibility with FAISS-GPU and other dependencies.")
+    
     print(f"Operating system: {platform.system()} {platform.version()}")
     print(f"Platform: {platform.platform()}")
     print(f"Machine: {platform.machine()}")
