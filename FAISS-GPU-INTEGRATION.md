@@ -24,15 +24,36 @@ GPU acceleration can provide 10-100x performance improvements for large vector d
    Then close and reopen PowerShell.
 
 ### Step 2: Setup FAISS-GPU
-1. Run the setup script:
+1. Create a new conda environment with Python 3.10 (specifically required):
    ```powershell
-   .\setup_faiss_gpu.ps1
+   conda create -n faiss_gpu_env2 python=3.10 -y
+   conda activate faiss_gpu_env2
    ```
-2. The script will:
-   - Create a new conda environment 'faiss_gpu_env2'
-   - Install PyTorch with CUDA support
-   - Install FAISS-GPU and dependencies
-   - Verify the installation
+
+2. Install NumPy 1.24.3 (exact version required for compatibility):
+   ```powershell
+   pip install numpy==1.24.3
+   ```
+
+3. Install CUDA Toolkit 11.8 (specific version required for compatibility):
+   ```powershell
+   conda install -c conda-forge cudatoolkit=11.8 -y
+   ```
+
+4. Install PyTorch 2.0.1 with CUDA 11.8 support:
+   ```powershell
+   pip3 install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118
+   ```
+
+5. Install FAISS-GPU 1.7.4 with CUDA 11.8 support:
+   ```powershell
+   conda install -c conda-forge faiss-gpu=1.7.4 cudatoolkit=11.8 -y
+   ```
+
+6. Install the remaining project dependencies:
+   ```powershell
+   pip install -r requirements.txt
+   ```
 
 ## Step 2: Test the FAISS-GPU installation
 1. Make sure the conda environment is activated:

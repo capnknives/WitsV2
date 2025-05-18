@@ -1,137 +1,127 @@
 @echo off
+SETLOCAL
+
 echo Setting up WITS-NEXUS with FAISS-GPU integration...
 
-:: Check if running in a virtual environment
-if defined VIRTUAL_ENV (
-    echo Error: Please deactivate any active virtual environment first
-    echo Run 'deactivate' and try again
+REM Check if conda is available by trying to run 'conda --version'
+echo Checking for conda...
+conda --version >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo.
+    echo ERROR: 'conda' command not recognized.
+    echo Please ensure Anaconda or Miniconda is installed and configured correctly.
+    echo You may need to:
+    echo   1. Add Conda's script directory (e.g., C:\Users\YourUser\anaconda3\Scripts or Miniconda3\Scripts) to your system PATH.
+    echo   2. Run this script from an Anaconda Prompt or Anaconda Powershell.
+    echo   3. Initialize your shell for conda (e.g., run 'conda init cmd.exe' or 'conda init powershell' in an Anaconda Prompt, then restart your shell).
+    echo.
+    pause
     exit /b 1
 )
+echo Conda command found. Proceeding with environment setup.
 
-:: Activate conda base environment first (needed for conda commands)
-call conda activate base || (
-    echo Error: Could not activate conda base environment
-    exit /b 1
+REM Define environment name and project root with exact dependency versions
+SET "ENV_NAME=faiss_gpu_env2"
+SET "PROJECT_ROOT=c:\WITS\wits_nexus_v2"
+SET "PYTHON_VERSION=3.10"
+SET "NUMPY_VERSION=1.24.3"
+SET "CUDA_VERSION=11.8"
+SET "TORCH_VERSION=2.0.1+cu118"
+SET "TORCHVISION_VERSION=0.15.2+cu118"
+SET "FAISS_VERSION=1.7.4"
+
+REM Attempt to activate the conda environment
+echo Activating %ENV_NAME% conda environment...
+call conda activate %ENV_NAME%
+
+REM Check if activation was successful by checking CONDA_PREFIX
+SET "ACTIVATION_SUCCESSFUL=0"
+IF NOT "%CONDA_PREFIX%"=="" (
+    echo "%CONDA_PREFIX%" | findstr /I /C:"%ENV_NAME%" >nul
+    IF NOT ERRORLEVEL 1 (
+        SET "ACTIVATION_SUCCESSFUL=1"
+    )
 )
 
-:: Create and activate faiss-gpu conda environment if it doesn't exist
-conda env list | findstr /C:"faiss_gpu_env2" > nul
-if errorlevel 1 (
-    echo Creating faiss_gpu_env2 conda environment...
-    call conda create -n faiss_gpu_env2 python=3.10 -y || (
-        echo Error: Could not create conda environment
+IF "%ACTIVATION_SUCCESSFUL%"=="1" (
+    echo Environment '%ENV_NAME%' is active: %CONDA_PREFIX%
+    echo Ensuring dependencies are installed/updated in '%ENV_NAME%'...
+    call conda activate %ENV_NAME% && pip install -r "%PROJECT_ROOT%\requirements.txt"
+    IF ERRORLEVEL 1 (
+        echo ERROR: Failed to install/update dependencies from requirements.txt in '%ENV_NAME%'.
+        pause
         exit /b 1
     )
-)
+    echo Dependencies installed/updated successfully.
+) ELSE (
+    echo Environment '%ENV_NAME%' not active or not found. Attempting to create and activate...
 
-:: Activate faiss_gpu_env2 and install FAISS-GPU
-call conda activate faiss_gpu_env2 || (
-    echo Error: Could not activate faiss_gpu_env2 environment
-    exit /b 1
-)
-
-:: Install faiss-gpu using conda to ensure compatibility
-call conda install -y faiss-gpu cudatoolkit=11.3 || (
-    echo Error: Could not install faiss-gpu
-    exit /b 1
-)
-
-:: Create virtual environment within the conda environment
-python -m venv .venv || (
-    echo Error: Could not create virtual environment
-    exit /b 1
-)
-
-:: Activate virtual environment
-call .venv\Scripts\activate || (
-    echo Error: Could not activate virtual environment
-    exit /b 1
-)
-
-:: Install FAISS-GPU and core ML dependencies in conda environment
-call conda install -c pytorch -c nvidia faiss-gpu=1.7.2 pytorch=1.13.0 cudatoolkit=11.6 numpy=1.24.3 -y || (
-    echo Error: Could not install FAISS-GPU dependencies
-    exit /b 1
-)
-
-:: Create new virtual environment using conda's Python
-echo Creating new virtual environment with Python 3.10...
-python -m venv .venv || (
-    echo Error: Could not create virtual environment
-    exit /b 1
-)
-
-:: Activate virtual environment and verify activation
-call .venv\Scripts\activate || (
-    echo Error: Could not activate virtual environment
-    exit /b 1
-)
-
-echo Verifying virtual environment activation...
-python -c "import sys; print('Virtual environment:', sys.prefix)"
-
-:: Upgrade pip and install core packages
-python -m pip install --upgrade pip wheel setuptools || (
-    echo Error: Could not upgrade pip and core packages
-    exit /b 1
-)
-
-:: Install core dependencies in the correct order
-python -m pip install typing-extensions==4.13.2 || (
-    echo Error: Could not install typing-extensions
-    exit /b 1
-)
-
-python -m pip install pydantic==2.11.4 || (
-    echo Error: Could not install pydantic
-    exit /b 1
-)
-
-:: Install remaining requirements
-python -m pip install -r requirements.txt || (
-    echo Error: Could not install requirements
-    exit /b 1
-)
-
-:: Install core dependencies first with specific versions
-pip uninstall typing-extensions -y
-pip install --no-cache-dir typing-extensions==4.7.1
-pip install numpy==1.24.3
-pip install torch==1.13.1
-pip install transformers==4.31.0
-pip install sentence-transformers==2.2.2
-
-:: Install non-critical requirements without dependencies first
-pip install --no-deps -r requirements.txt
-
-:: Now install remaining dependencies (excluding already installed packages)
-echo Installing remaining dependencies...
-for /f "tokens=*" %%i in ('pip freeze') do (
-    if not "%%i"=="numpy==1.24.3" if not "%%i"=="torch==1.13.1" if not "%%i"=="typing-extensions==4.7.1" if not "%%i"=="transformers==4.31.0" if not "%%i"=="sentence-transformers==2.2.2" (
-        pip install "%%i"
+    echo Creating %ENV_NAME% conda environment with Python %PYTHON_VERSION%...
+    call conda create -n %ENV_NAME% python=%PYTHON_VERSION% -c conda-forge -y
+    IF ERRORLEVEL 1 (
+        echo ERROR: Conda environment '%ENV_NAME%' creation failed.
+        pause
+        exit /b 1
     )
+    echo Environment '%ENV_NAME%' created.
+
+    echo Activating newly created '%ENV_NAME%' environment...
+    call conda activate %ENV_NAME%
+    
+    SET "ACTIVATION_SUCCESSFUL_AFTER_CREATE=0"
+    IF NOT "%CONDA_PREFIX%"=="" (
+        echo "%CONDA_PREFIX%" | findstr /I /C:"%ENV_NAME%" >nul
+        IF NOT ERRORLEVEL 1 (
+            SET "ACTIVATION_SUCCESSFUL_AFTER_CREATE=1"
+        )
+    )
+
+    IF "%ACTIVATION_SUCCESSFUL_AFTER_CREATE%"=="1" (
+        echo Environment '%ENV_NAME%' activated successfully after creation: %CONDA_PREFIX%
+    ) ELSE (
+        echo ERROR: Failed to activate '%ENV_NAME%' even after creation.
+        echo Current CONDA_PREFIX: %CONDA_PREFIX%
+        echo Please check your conda installation and try activating manually: conda activate %ENV_NAME%
+        pause
+        exit /b 1
+    )
+
+    echo Installing CUDA 11.8 and FAISS-GPU 1.7.4 into '%ENV_NAME%'...
+    call conda activate %ENV_NAME% && conda install -c conda-forge cudatoolkit=11.8 faiss-gpu=1.7.4 -y
+    IF ERRORLEVEL 1 (
+        echo ERROR: CUDA or FAISS-GPU installation failed.
+        pause
+        exit /b 1
+    )
+    echo CUDA and FAISS-GPU installed.
+
+    echo Installing dependencies from requirements.txt into '%ENV_NAME%'...
+    call conda activate %ENV_NAME% && pip install -r "%PROJECT_ROOT%\requirements.txt"
+    IF ERRORLEVEL 1 (
+        echo ERROR: Failed to install dependencies from requirements.txt.
+        pause
+        exit /b 1
+    )
+    echo Dependencies installed successfully.
 )
 
-:: Add PYTHONPATH to include conda environment site-packages
-set PYTHONPATH=%CONDA_PREFIX%\Lib\site-packages;%PYTHONPATH%
+echo.
+echo Launching WITS-NEXUS application in a new window...
+REM Ensure the new window also activates the environment and changes to the project directory
+start "WITS-NEXUS Server" cmd /k "conda activate %ENV_NAME% && cd /D "%PROJECT_ROOT%" && python run.py && pause"
 
-:: Start the web UI
-echo Starting Web UI...
-python run.py
-
-:: Verify the environment is set up correctly
-echo Verifying environment setup...
-python -c "import torch; import faiss; import typing_extensions; print('Environment verified successfully!')" || (
-    echo Error: Environment verification failed
+IF ERRORLEVEL 1 (
+    echo.
+    echo ERROR: Failed to launch WITS-NEXUS application (run.py) in a new window.
+    echo Please check if a new window appeared and if there were errors there.
+    pause
     exit /b 1
 )
 
-echo WITS-NEXUS environment setup complete!
-echo To start the application, run: python run.py
+echo.
+echo WITS-NEXUS application is launching in a new window.
+echo This script (start.bat) will now pause. Press any key to exit this script.
+echo The server will continue running in its own window.
 
-:: Keep the window open if there's an error
-if errorlevel 1 (
-    echo.
-    echo An error occurred. Press any key to exit.
-    pause > nul
-)
+ENDLOCAL
+pause
