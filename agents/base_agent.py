@@ -1,5 +1,6 @@
 # filepath: c:\WITS\wits_nexus_v2\agents\base_agent.py.new
 # agents/base_agent.py
+import logging # Added for logger
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List # Added List for get_available_tools
 # from core.config import AppConfig # If passing full config object
@@ -7,13 +8,15 @@ from typing import Any, Dict, Optional, List # Added List for get_available_tool
 # from core.memory_manager import MemoryManager
 
 class BaseAgent(ABC):
-    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any): # Use AppConfig for type hinting later
+    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any, tool_registry: Optional[Any] = None): # Added tool_registry
         self.agent_name = agent_name
         self.config_full = config # Full app config
         self.agent_config = self._get_agent_specific_config(config) # e.g., config.models.scribe
         self.llm = llm_interface
         self.memory = memory_manager
-        print(f"[{self.agent_name}] Initialized.")
+        self.tool_registry = tool_registry # Added tool_registry initialization
+        self.logger = logging.getLogger(f"WITS.agents.{self.agent_name}") # Added logger initialization
+        self.logger.info(f"[{self.agent_name}] Initialized.") # Changed print to self.logger.info
         
     def _get_agent_specific_config(self, full_config: Any) -> Dict[str, Any]:
         # Helper to extract model name or other agent-specific settings

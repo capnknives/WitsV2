@@ -48,8 +48,13 @@ from agents.orchestrator_agent import OrchestratorAgent
 # Import specialized agents
 from agents.specialized.engineer_agent import EngineerAgent
 from agents.specialized.scribe_agent import ScribeAgent
-from agents.specialized.analyst_agent import AnalystAgent
 from agents.specialized.researcher_agent import ResearcherAgent
+from agents.specialized.analyst_agent import AnalystAgent
+from agents.specialized.plotter_agent import PlotterAgent
+from agents.specialized.character_agent import CharacterDevelopmentAgent
+from agents.specialized.worldbuilder_agent import WorldbuilderAgent
+from agents.specialized.prose_agent import ProseGenerationAgent
+from agents.specialized.editor_agent import EditorAgent
 
 # Import all the tools we've implemented
 from tools.calculator_tool import CalculatorTool
@@ -161,12 +166,58 @@ async def start_wits_cli(config: AppConfig):
         memory_manager=memory_manager
     )
     
+    # Initialize additional specialized agents
+    plotter_agent = PlotterAgent(
+        agent_name="WITS_Book_Plotter",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=tool_registry
+    )
+    
+    character_dev_agent = CharacterDevelopmentAgent(
+        agent_name="WITS_Book_Character_Developer",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=tool_registry
+    )
+    
+    worldbuilder_agent = WorldbuilderAgent(
+        agent_name="WITS_Book_Worldbuilder",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=tool_registry
+    )
+    
+    prose_generator_agent = ProseGenerationAgent(
+        agent_name="WITS_Book_Prose_Generator",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=tool_registry
+    )
+    
+    editor_agent = EditorAgent(
+        agent_name="WITS_Book_Editor",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        tool_registry=tool_registry
+    )
+    
     # Register all specialized agents
     specialized_agents = {
-        "engineer_agent": engineer_agent,
-        "scribe_agent": scribe_agent,
-        "analyst_agent": analyst_agent,
-        "researcher_agent": researcher_agent
+        "engineer": engineer_agent,
+        "scribe": scribe_agent,
+        "researcher": researcher_agent,
+        "analyst": analyst_agent,
+        "book_plotter": plotter_agent,
+        "book_character_dev": character_dev_agent,
+        "book_worldbuilder": worldbuilder_agent,
+        "book_prose_generator": prose_generator_agent,
+        "book_editor": editor_agent,
     }
     
     # 5. Initialize OrchestratorAgent

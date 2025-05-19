@@ -29,6 +29,8 @@ class OrchestratorAgent(BaseAgent):
         self.logger.info(f"OrchestratorAgent initialized. Model: {self.orchestrator_model_name}, Max iterations: {self.max_iterations}")
         self.logger.info(f"Delegation targets: {list(self.delegation_targets.keys())}")
         self.logger.info(f"Final answer tool configured as: {self.final_answer_tool_name}")
+        self.is_book_writing_mode = False # Added for book writing mode
+        self.book_writing_state: Dict[str, Any] = {} # Added to store book writing state
 
     def _get_agent_descriptions_for_prompt(self) -> str:
         descriptions = []
@@ -42,6 +44,16 @@ class OrchestratorAgent(BaseAgent):
     def _build_llm_prompt(self, user_goal: str, conversation_history: List[Dict[str, str]], previous_steps: List[Dict[str, Any]]) -> str:
         history_str = "\\n".join([f"{turn['role']}: {turn['content']}" for turn in conversation_history])
         
+        # Determine if we are in book writing mode
+        # Simple check based on keywords, can be made more sophisticated
+        if "book" in user_goal.lower() or "novel" in user_goal.lower() or "story" in user_goal.lower():
+            self.is_book_writing_mode = True
+            self.logger.info(f"Detected book writing mode for goal: {user_goal}")
+        else:
+            # Reset if not a book-writing goal, or manage separate states per goal
+            self.is_book_writing_mode = False
+
+
         previous_steps_str = "No previous actions taken in this orchestration cycle."
         if previous_steps:
             formatted_steps = []
@@ -68,6 +80,33 @@ class OrchestratorAgent(BaseAgent):
             previous_steps_str = "\\n".join(formatted_steps)
 
         agent_descriptions = self._get_agent_descriptions_for_prompt()
+        
+        book_writing_prompt_injection = ""
+        if self.is_book_writing_mode:
+            book_writing_prompt_injection = """\
+You are currently in 'Book Writing Mode'.
+The goal is to write a book. Decompose this goal into logical steps suitable for the following specialized book-writing agents:
+- "book_plotter": For generating plot outlines, chapter structures, and story arcs.
+- "book_character_dev": For developing character profiles, backstories, and motivations.
+- "book_worldbuilder": For creating the setting, lore, and rules of the fictional world.
+- "book_prose_generator": For writing the actual narrative, dialogue, and descriptions.
+- "book_editor": For reviewing, editing, and refining the generated prose.
+
+When delegating to these agents, provide highly specific task descriptions. For example:
+- To PlotterAgent: 'Generate a 3-act plot outline for a sci-fi mystery novel set on Mars.'
+- To CharacterDevelopmentAgent: 'Develop a character sheet for the protagonist, a cynical detective, including their fears, desires, and a key childhood trauma.'
+- To WorldBuilderAgent: 'Describe the political system and major factions of the elven kingdom of Eldoria.'
+- To ProseGenerationAgent: 'Write Chapter 1 (approx. 1500 words) based on the approved outline, focusing on introducing the main character and the inciting incident. Current outline: [Outline Snippet]. Character sheet: [Character Snippet].'
+- To EditorAgent: 'Review Chapter 5 for plot consistency with the overall outline and check for repetitive phrasing. Current book state: [Relevant Book State].'
+
+Remember to manage the overall state of the book (outline, character sheets, generated chapters) by retrieving and updating this information via the MemoryManager. You can instruct other agents to save their outputs to memory.
+Current Book State (from MemoryManager, if available):
+Outline: {self.book_writing_state.get('outline', 'Not yet defined.')}
+Characters: {json.dumps(self.book_writing_state.get('characters', {}), indent=2)}
+World Details: {json.dumps(self.book_writing_state.get('world_details', {}), indent=2)}
+Generated Chapters: {list(self.book_writing_state.get('chapters', {}).keys())}
+"""
+
         output_format_instruction = f"""\\
 You MUST respond in a single, valid JSON object. Do not add any text before or after the JSON object.
 The JSON object should have two main keys: "thought_process" and "chosen_action".
@@ -121,7 +160,9 @@ Example of the full JSON output for providing a final answer:
 Ensure your entire response is ONLY the single JSON object described.
 """
         prompt = f"""\\
-You are the Orchestrator Agent. Your primary role is to understand a user\'s goal and achieve it by strategically delegating tasks to specialized agents or by providing a final answer once the goal is met. You operate in a cycle of thought, action, and observation.
+You are the Orchestrator Agent. Your primary role is to understand a user's goal and achieve it by strategically delegating tasks to specialized agents or by providing a final answer once the goal is met. You operate in a cycle of thought, action, and observation.
+
+{book_writing_prompt_injection}
 
 Your available tools (specialized agents and the FinalAnswerTool) are:
 {agent_descriptions}
@@ -228,10 +269,16 @@ JSON Response:
         session_id = context.get("session_id", f"orch_delegate_fallback_{time.time_ns()}")
         if agent_name in self.delegation_targets:
             delegate_agent = self.delegation_targets[agent_name]
-            self.logger.info(f"Delegating goal to agent \\'{agent_name}\\' for session \\'{session_id}\\\': {goal}")
+            self.logger.info(f"Delegating goal to agent '{agent_name}' for session '{session_id}': {goal}")
+            
+            # Pass book writing state to specialized agents if in book writing mode
+            delegation_context = context.copy()
+            if self.is_book_writing_mode:
+                delegation_context["book_writing_state"] = self.book_writing_state
+                self.logger.info(f"Passing book_writing_state to {agent_name}: {list(self.book_writing_state.keys())}")
+
             yield StreamData(type="info", content=f"Delegating to {agent_name} with goal: {goal}", tool_name=agent_name, tool_args={"goal": goal}, iteration=context.get("delegator_iteration"))
             
-            delegation_context = context.copy()
             delegation_context["session_id"] = session_id 
             delegation_context["delegator_agent"] = self.agent_name
 
@@ -300,7 +347,51 @@ JSON Response:
     @log_async_execution_time(logging.getLogger(f"WITS.OrchestratorAgent.run"))
     async def run(self, user_goal: str, context: Dict[str, Any]) -> AsyncGenerator[StreamData, None]:
         session_id = context.get("session_id", f"orch_run_fallback_{time.time_ns()}")
-        self.logger.info(f"Orchestrator starting for session \'{session_id}\'. Goal: {user_goal}")
+        self.logger.info(f"Orchestrator starting for session '{session_id}'. Goal: {user_goal}")
+
+        # Initialize or load book writing state if applicable
+        if "book" in user_goal.lower() or "novel" in user_goal.lower() or "story" in user_goal.lower(): # Basic check
+            self.is_book_writing_mode = True
+            book_state_memory_key = f"book_state_{session_id}_{user_goal[:50].replace(' ', '_')}"
+            self.logger.info(f"Book writing mode enabled. Attempting to load state with key: {book_state_memory_key}")
+            try:
+                # Assuming retrieve_memory_segment_by_key searches for a segment with metadata['key'] == book_state_memory_key
+                # and type == "BOOK_WRITING_STATE", returning the most recent one.
+                # This method was mentioned as "await self.memory.retrieve_memory_segment_by_key(memory_key)" in summary.
+                if hasattr(self.memory, "retrieve_memory_segment_by_key"):
+                    loaded_segment = await self.memory.retrieve_memory_segment_by_key(book_state_memory_key)
+                else:
+                    self.logger.warning("MemoryManager does not have 'retrieve_memory_segment_by_key' method. Attempting search_memory.")
+                    # Fallback to search_memory if retrieve_memory_segment_by_key is not available
+                    # This requires knowing how search_memory works and what query to use.
+                    # For now, assume it might return a list of segments or None.
+                    # This is a placeholder for a more robust search query.
+                    search_results = await self.memory.search_memory(
+                        query_text=f"Retrieve book writing state for key {book_state_memory_key}",
+                        limit=1,
+                        filter_metadata={"key": book_state_memory_key, "type": "BOOK_WRITING_STATE"} # Hypothetical filter
+                    )
+                    loaded_segment = search_results[0] if search_results else None
+
+                if loaded_segment and loaded_segment.content and loaded_segment.content.text:
+                    self.book_writing_state = json.loads(loaded_segment.content.text)
+                    self.logger.info(f"Loaded existing book writing state for key '{book_state_memory_key}': {list(self.book_writing_state.keys())}")
+                else:
+                    self.book_writing_state = {} # Initialize if not found
+                    self.logger.info(f"No existing book state found for key '{book_state_memory_key}' (or content.text was empty), initializing empty state.")
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to parse loaded book state for key '{book_state_memory_key}': {e}. Initializing empty state.")
+                self.book_writing_state = {}
+            except AttributeError as e: # Handles if retrieve_memory_segment_by_key or search_memory is not found or behaves unexpectedly
+                self.logger.error(f"Error accessing memory methods for book state loading (key '{book_state_memory_key}'): {e}. Initializing empty state.")
+                self.book_writing_state = {}
+            except Exception as e: 
+                self.logger.error(f"Unexpected error loading book state for key '{book_state_memory_key}': {e}. Initializing empty state.")
+                self.book_writing_state = {}
+        else:
+            self.is_book_writing_mode = False
+            self.book_writing_state = {}
+
 
         init_content = MemorySegmentContent(text=f"Orchestrator initialized with goal: {user_goal}")
         await self.memory.add_memory_segment(MemorySegment(
@@ -452,87 +543,69 @@ JSON Response:
 
                     delegation_context = context.copy() 
                     delegation_context["delegator_iteration"] = i + 1
+                    delegation_context["user_goal"] = user_goal # Pass user_goal for consistent memory key usage
 
                     accumulated_agent_response = ""
                     async for agent_response_chunk in self._handle_agent_delegation(active_tool_name, sub_goal, delegation_context):
                         yield agent_response_chunk
                         if agent_response_chunk.type == "tool_response": 
                             observation = agent_response_chunk.content if isinstance(agent_response_chunk.content, str) else json.dumps(agent_response_chunk.content)
-                            self.logger.info(f"Observation from {active_tool_name} for session \'{session_id}\' (iteration {i+1}): {observation[:200]}...")
-                        elif agent_response_chunk.type == "content" or agent_response_chunk.type == "final_answer":
-                             if isinstance(agent_response_chunk.content, str):
-                                accumulated_agent_response += agent_response_chunk.content + "\\n"
-                             elif isinstance(agent_response_chunk.content, dict):
-                                accumulated_agent_response += json.dumps(agent_response_chunk.content) + "\\n"
-                    
-                    if not observation and accumulated_agent_response:
-                        observation = accumulated_agent_response.strip()
-                    elif not observation and not accumulated_agent_response:
-                        observation = f"Agent {active_tool_name} completed but provided no specific output."
-                        self.logger.warning(f"Agent {active_tool_name} provided no specific output for session \'{session_id}\' on iteration {i+1}")
-            else: 
-                observation = f"Error: Invalid action type \\'{current_action.action_type}\\' received for execution."
-                self.logger.error(f"Invalid action type \\'{current_action.action_type}\\' in main loop for session \\'{session_id}\\'. This indicates a logic error in parsing or action definition.")
-                yield StreamData(type="error", content=observation, error_details=observation, iteration=i+1) # Added iteration
+                            self.logger.info(f"Observation from {active_tool_name} for session '{session_id}' (iteration {i+1}): {observation[:200]}...")
+                        
+                            # If in book writing mode, attempt to update book_writing_state from agent's output
+                            if self.is_book_writing_mode and active_tool_name in ["book_plotter", "book_character_dev", "book_worldbuilder", "book_prose_generator", "book_editor"]:
+                                try:
+                                    agent_content_str = observation # observation is the string form of agent_response_chunk.content
+                                    update_data_dict = None
+                                    
+                                    try:
+                                        parsed_content = json.loads(agent_content_str)
+                                        if isinstance(parsed_content, dict):
+                                            update_data_dict = parsed_content
+                                    except json.JSONDecodeError:
+                                        self.logger.warning(f"Observation from {active_tool_name} is a string but not valid JSON: {agent_content_str[:200]}...")
+                                    
+                                    if update_data_dict and "update_book_state" in update_data_dict:
+                                        update_payload = update_data_dict["update_book_state"]
+                                        if isinstance(update_payload, dict):
+                                            # Retrieve user_goal from delegation_context for consistent key generation
+                                            current_user_goal_for_key = delegation_context.get("user_goal", "unknown_user_goal")
+                                            
+                                            for key, value in update_payload.items():
+                                                if key in self.book_writing_state and isinstance(self.book_writing_state[key], dict) and isinstance(value, dict):
+                                                    self.book_writing_state[key].update(value) # Merge dictionaries
+                                                elif key in self.book_writing_state and isinstance(self.book_writing_state[key], list) and isinstance(value, list):
+                                                    # For lists, decide on extend vs replace. Extend is often safer.
+                                                    self.book_writing_state[key].extend(value) 
+                                                else:
+                                                    self.book_writing_state[key] = value # Replace or add new key
+                                            self.logger.info(f"Book writing state updated by {active_tool_name} with keys: {list(update_payload.keys())}")
+                                            
+                                            # Persist updated book state to memory
+                                            book_state_memory_key_for_save = f"book_state_{session_id}_{current_user_goal_for_key[:50].replace(' ', '_')}"
+                                            state_json_string = json.dumps(self.book_writing_state)
+                                            
+                                            state_content_obj = MemorySegmentContent(
+                                                text=state_json_string, 
+                                                tool_output=f"Book state updated by {active_tool_name}." # Brief description for the segment
+                                            )
+                                            await self.memory.add_memory_segment(MemorySegment(
+                                                type="BOOK_WRITING_STATE", 
+                                                source=self.agent_name,
+                                                content=state_content_obj,
+                                                metadata={
+                                                    "session_id": session_id, 
+                                                    "user_goal_summary": current_user_goal_for_key[:50], 
+                                                    "timestamp": time.time(), 
+                                                    "key": book_state_memory_key_for_save # Store the key for retrieval
+                                                }
+                                            ))
+                                            self.logger.info(f"Persisted updated book_writing_state to memory with key '{book_state_memory_key_for_save}'.")
+                                        else:
+                                            self.logger.warning(f"'update_book_state' payload from {active_tool_name} is not a dictionary: {update_payload}")
+                                    # else: # Optional: log if no update_book_state key or not a dict
+                                    #    self.logger.debug(f"No 'update_book_state' key found in {active_tool_name} response, or content not a parsable dict with it. Observation: {agent_content_str[:100]}")
 
-            # Corrected conditional access for active_tool_name in log content
-            observation_log_text = f"Observation from {active_tool_name if active_tool_name else 'N/A'}: {observation[:500]}..."
-            observation_log_content = MemorySegmentContent(
-                text=observation_log_text,
-                tool_name=active_tool_name, # Will be None if not a tool_call
-                tool_output=observation
-            )
-            await self.memory.add_memory_segment(MemorySegment(
-                type="ORCHESTRATOR_OBSERVATION",
-                source=self.agent_name, 
-                content=observation_log_content,
-                metadata={"session_id": session_id, "iteration": i + 1, "tool_used": active_tool_name, "timestamp": time.time()}
-            ))
-            
-            previous_steps.append({
-                "thought": current_thought,
-                "action": current_action,
-                "observation": observation
-            })
-            yield StreamData(type="orchestrator_observation", content=observation, tool_name=active_tool_name, iteration=i+1) # Added iteration
-
-        self.logger.warning(f"Orchestrator reached max iterations ({self.max_iterations}) for session \\'{session_id}\\' without reaching a final answer for goal: {user_goal}")
-        yield StreamData(type="info", content="Orchestrator reached maximum iterations.", iteration=self.max_iterations) # Added iteration
-        max_iter_content = MemorySegmentContent(text=f"Reached max iterations ({self.max_iterations}) for goal: {user_goal}")
-        await self.memory.add_memory_segment(MemorySegment(
-            type="ORCHESTRATOR_MAX_ITERATIONS",
-            source=self.agent_name,
-            content=max_iter_content,
-            metadata={"session_id": session_id, "user_goal": user_goal, "timestamp": time.time()}
-        ))
-        yield StreamData(type="final_answer", content="I\\'ve made several attempts but couldn\\'t complete your request. You might want to try rephrasing or breaking it down.", iteration=self.max_iterations) # Added iteration
-
-    def get_description(self) -> str:
-        return "This agent orchestrates tasks by delegating to specialized agents or providing a final answer. It manages the overall goal achievement."
-
-    def get_available_tools(self) -> List[Dict[str, Any]]:
-        tools = []
-        for name, agent in self.delegation_targets.items():
-            tools.append({
-                "tool_name": name,
-                "description": agent.get_description(), 
-                "args_schema": { 
-                    "type": "object",
-                    "properties": {
-                        "goal": {"type": "string", "description": f"The specific goal for the {name} agent."}
-                    },
-                    "required": ["goal"]
-                }
-            })
-        tools.append({
-            "tool_name": self.final_answer_tool_name,
-            "description": "Provides the final answer to the user when the goal is achieved.",
-            "args_schema": {
-                "type": "object",
-                "properties": {
-                    "answer": {"type": "string", "description": "The final answer to the user\'s goal."}
-                },
-                "required": ["answer"]
-            }
-        })
-        return tools
+                                except Exception as e:
+                                    # Log the full exception for better debugging
+                                    self.logger.exception(f"Error updating/persisting book writing state from {active_tool_name} response: {e}. Observation was: {agent_content_str[:200]}")

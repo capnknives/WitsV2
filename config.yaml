@@ -2,12 +2,13 @@
 # WITS-NEXUS v2 Configuration
 
 # General Settings
-internet_access: false
-allow_code_execution: false # Default to false for safety
-ethics_enabled: true
+internet_access: true
+allow_code_execution: true # Default to false for safety
+allow_file_access: true # Default to false for safety
+ethics_enabled: false
 output_directory: "output" # Relative to project root
 debug_mode: true # Enable debug mode
-skip_llm_initialization: true # Skip LLM initialization for testing
+skip_llm_initialization: false # Skip LLM initialization for testing
 
 # Voice Input Settings (Optional)
 voice_input: false
@@ -76,6 +77,7 @@ agent_profiles:
       - "read_file"
       - "write_file"
       - "list_files"
+
     max_iterations: 15
     # You can add a system_prompt_override here if needed
     # system_prompt_override: "You are a helpful general assistant."
@@ -89,6 +91,31 @@ agent_profiles:
     max_iterations: 10
     ollama_options:
       num_ctx: 8192  # Larger context for code analysis
+  book_plotter:
+    agent_class: agents.specialized.plotter_agent.PlotterAgent
+    llm_model_name: openhermes:latest  # Or your preferred model for planning
+    temperature: 0.7
+    tool_names: []
+  book_character_dev:
+    agent_class: agents.specialized.character_agent.CharacterDevelopmentAgent
+    llm_model_name: llama3 # Or your preferred model
+    temperature: 0.7
+    tool_names: []
+  book_worldbuilder:
+    agent_class: agents.specialized.worldbuilder_agent.WorldbuilderAgent
+    llm_model_name: llama3 # Or your preferred model
+    temperature: 0.7
+    tool_names: []
+  book_prose_generator:
+    agent_class: agents.specialized.prose_agent.ProseGenerationAgent
+    llm_model_name: llama3 # Or your preferred model for creative writing
+    temperature: 0.8
+    tool_names: []
+  book_editor:
+    agent_class: agents.specialized.editor_agent.EditorAgent
+    llm_model_name: llama3 # Or your preferred model
+    temperature: 0.5
+    tool_names: []
 
 # Tool Configurations
 tool_configs:
