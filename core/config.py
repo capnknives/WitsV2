@@ -75,6 +75,7 @@ class AgentProfileConfig(BaseModel):
     tool_names: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
     agent_specific_params: Dict[str, Any] = Field(default_factory=dict)
+    delegation_target_profile_names: Optional[List[str]] = None # Added for orchestrators
 
     class Config:
         extra = 'ignore' # Ignore extra fields from YAML not defined in Pydantic model

@@ -12,6 +12,9 @@
 </head>
 <body>
     <div class="container">
+        <div id="global-error-notification-area" class="global-error-area" style="display: none;" aria-live="assertive">
+            <!-- Error messages will be injected here by script.js -->
+        </div>
         <header class="header-area"> <!-- Changed to header semantic tag -->
             <div class="logo-area">
                 <h1><i class="fas fa-brain"></i> WITS-NEXUS v2</h1> <!-- Added an icon to title -->
@@ -101,6 +104,38 @@
                     <span class="spinner"></span> Agent is thinking...
                 </div>
 
+                <section id="plot-outline-section" class="book-writing-output" style="display: none;" aria-labelledby="plot-outline-heading">
+                    <h3 id="plot-outline-heading"><i class="fas fa-sitemap"></i> Plot Outline</h3>
+                    <div id="plot-outline-content" class="output-content-area">
+                        <!-- Plot points will be added here by script.js -->
+                        <div class="empty-state">
+                            <i class="fas fa-feather-alt fa-2x"></i>
+                            <p>Plot details from the Book Plotter agent will appear here.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="character-profiles-section" class="book-writing-output" style="display: none;" aria-labelledby="character-profiles-heading">
+                    <h3 id="character-profiles-heading"><i class="fas fa-users"></i> Character Profiles</h3>
+                    <div id="character-profiles-content" class="output-content-area">
+                        <!-- Character profiles will be added here by script.js -->
+                        <div class="empty-state">
+                            <i class="fas fa-user-edit fa-2x"></i>
+                            <p>Character details from the Character Developer agent will appear here.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="world-details-section" class="book-writing-output" style="display: none;" aria-labelledby="world-details-heading">
+                    <h3 id="world-details-heading"><i class="fas fa-globe"></i> World Details</h3>
+                    <div id="world-details-content" class="output-content-area">
+                        <!-- World details will be added here by script.js -->
+                        <div class="empty-state">
+                            <i class="fas fa-globe fa-2x"></i>
+                            <p>World details will appear here as they are generated...</p>
+                        </div>
+                    </div>
+                </section>
 
                 <section class="memory-controls" aria-labelledby="memory-heading"> <!-- Changed to section -->
                     <div class="memory-header">

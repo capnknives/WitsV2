@@ -26,6 +26,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearChatBtn = document.getElementById('clear-chat-btn');
     const clearThinkingBtn = document.getElementById('clear-thinking-btn');
 
+    // Book Writing Output Areas
+    const plotOutlineSection = document.getElementById('plot-outline-section');
+    const plotOutlineContent = document.getElementById('plot-outline-content');
+    const characterProfilesSection = document.getElementById('character-profiles-section');
+    const characterProfilesContent = document.getElementById('character-profiles-content');
+    const worldDetailsContent = document.getElementById('world-details-content');
+
+    const globalErrorNotificationArea = document.getElementById('global-error-notification-area');
+
     // New elements
     const uploadBtn = document.getElementById('upload-btn');
     const fileUpload = document.getElementById('file-upload');
@@ -137,6 +146,44 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Global Error Display Function ---
+    function displayGlobalError(message, isHtml = false) {
+        if (!globalErrorNotificationArea) return;
+
+        const errorElement = document.createElement('div');
+        errorElement.classList.add('global-error-message');
+        
+        if (isHtml) {
+            errorElement.innerHTML = message; // Use innerHTML if the message is already formatted HTML
+        } else {
+            errorElement.textContent = message; // Use textContent for plain text to prevent XSS
+        }
+
+        // Add a close button to the error message
+        const closeButton = document.createElement('button');
+        closeButton.classList.add('close-error-btn');
+        closeButton.innerHTML = '&times;'; // Using HTML entity for 'X'
+        closeButton.setAttribute('aria-label', 'Close error message');
+        closeButton.onclick = () => {
+            errorElement.remove();
+            if (!globalErrorNotificationArea.hasChildNodes()) {
+                globalErrorNotificationArea.style.display = 'none'; // Hide area if no more errors
+            }
+        };
+        errorElement.appendChild(closeButton);
+
+        globalErrorNotificationArea.appendChild(errorElement);
+        globalErrorNotificationArea.style.display = 'block'; // Show the area
+
+        // Optional: Auto-dismiss after some time (e.g., 10 seconds)
+        // setTimeout(() => {
+        //     errorElement.remove();
+        //     if (!globalErrorNotificationArea.hasChildNodes()) {
+        //         globalErrorNotificationArea.style.display = 'none';
+        //     }
+        // }, 10000);
+    }
+
     // --- Agent Selection ---
     async function fetchAgentProfiles() {
         try {
@@ -180,7 +227,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Error fetching agent profiles:', error);
-            addMessageToLog({ type: 'error', content: 'Failed to load agent profiles.' }, thinkingProcessDiv);
+            // addMessageToLog({ type: 'error', content: 'Failed to load agent profiles.' }, thinkingProcessDiv);
+            displayGlobalError(`Failed to load agent profiles: ${error.message}`);
             agentDescriptionBox.innerHTML = '<p class="error-text">Could not load agent descriptions.</p>';
         }
     }
@@ -220,7 +268,8 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchSessionLLMParameters(); // Fetch parameters for the newly selected agent
         } catch (error) {
             console.error('Error selecting agent:', error);
-            addMessageToLog({ type: 'error', content: `Error switching agent: ${error.message}` }, thinkingProcessDiv);
+            // addMessageToLog({ type: 'error', content: `Error switching agent: ${error.message}` }, thinkingProcessDiv);
+            displayGlobalError(`Error switching agent: ${error.message}`);
         }
     }
 
@@ -234,7 +283,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/session/parameters?session_id=${currentSessionId}`);
             if (!response.ok) {
                 console.error('Failed to fetch session LLM parameters:', response.statusText);
-                addMessageToLog({ type: 'error', content: 'Failed to load session LLM parameters.' }, thinkingProcessDiv);
+                // addMessageToLog({ type: 'error', content: 'Failed to load session LLM parameters.' }, thinkingProcessDiv);
+                displayGlobalError(`Failed to load session LLM parameters: ${response.statusText}`);
                 return;
             }
             const params = await response.json();
@@ -258,7 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Error fetching session LLM parameters:', error);
-            addMessageToLog({ type: 'error', content: 'Error loading session LLM parameters.' }, thinkingProcessDiv);
+            // addMessageToLog({ type: 'error', content: 'Error loading session LLM parameters.' }, thinkingProcessDiv);
+            displayGlobalError(`Error loading session LLM parameters: ${error.message}`);
         }
     }
 
@@ -277,13 +328,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (!response.ok) {
-                addMessageToLog({ type: 'error', content: `Failed to update params: ${result.detail || 'Unknown error'}` }, thinkingProcessDiv);
+                // addMessageToLog({ type: 'error', content: `Failed to update params: ${result.detail || 'Unknown error'}` }, thinkingProcessDiv);
+                displayGlobalError(`Failed to update LLM parameters: ${result.detail || 'Unknown error'}`);
             } else {
                 addMessageToLog({ type: 'info', content: result.message || 'Parameters updated.' }, thinkingProcessDiv);
             }
         } catch (error) {
             console.error('Error updating LLM parameters:', error);
-            addMessageToLog({ type: 'error', content: 'Error updating LLM parameters.' }, thinkingProcessDiv);
+            // addMessageToLog({ type: 'error', content: 'Error updating LLM parameters.' }, thinkingProcessDiv);
+            displayGlobalError(`Error updating LLM parameters: ${error.message}`);
         }
     });
 
@@ -341,8 +394,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const errorResult = await response.json();
-                addMessageToLog({ type: 'error', content: `Server error: ${errorResult.detail || response.statusText}` }, thinkingProcessDiv);
-                // if (loadingIndicator) loadingIndicator.style.display = 'none'; // Hide indicator - moved to finally
+                // addMessageToLog({ type: 'error', content: `Server error: ${errorResult.detail || response.statusText}` }, thinkingProcessDiv);
+                displayGlobalError(`Chat stream error: ${errorResult.detail || response.statusText}`);
                 return;
             }
             const reader = response.body.getReader();
@@ -360,12 +413,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.error('Failed to parse streamed JSON:', jsonStr, e); 
                         // Optionally add an error message to UI if parsing fails mid-stream
                         // addMessageToLog({ type: 'error', content: 'Error processing stream data.' }, thinkingProcessDiv);
+                        displayGlobalError('Error processing streamed data. Check console for details.');
                     }
                 });
             }
         } catch (error) {
             console.error('Error sending goal:', error);
-            addMessageToLog({ type: 'error', content: 'Failed to connect or stream response.' }, thinkingProcessDiv);
+            // addMessageToLog({ type: 'error', content: 'Failed to connect or stream response.' }, thinkingProcessDiv);
+            displayGlobalError(`Failed to send message or stream response: ${error.message}`);
         } finally {
             if (loadingIndicator) loadingIndicator.style.display = 'none'; // Hide loading indicator in finally block
         }
@@ -376,7 +431,42 @@ document.addEventListener('DOMContentLoaded', () => {
         let prefix = '';
         if (data.type === 'final_answer') prefix = 'Agent Answer:';
         else if (data.type === 'user_goal') prefix = 'You:'; // Changed from 'USER_GOAL'
-        addMessageToLog(data, target, prefix);
+
+        // Check if the data is from book_plotter agent and is a final_answer
+        if (data.agent_name === 'book_plotter' && data.type === 'final_answer' && plotOutlineSection && plotOutlineContent) {
+            plotOutlineSection.style.display = 'block';
+            const emptyState = plotOutlineContent.querySelector('.empty-state');
+            if (emptyState) {
+                plotOutlineContent.innerHTML = ''; 
+            }
+            const plotElement = document.createElement('div');
+            plotElement.classList.add('plot-detail'); 
+            plotElement.innerHTML = escapeHtml(data.content); 
+            plotOutlineContent.appendChild(plotElement);
+            plotOutlineContent.scrollTop = plotOutlineContent.scrollHeight;
+        // Check if the data is from character_agent (assuming agent_name is 'character_agent')
+        } else if (data.agent_name === 'character_agent' && data.type === 'final_answer' && characterProfilesSection && characterProfilesContent) {
+            characterProfilesSection.style.display = 'block';
+            const emptyState = characterProfilesContent.querySelector('.empty-state');
+            if (emptyState) {
+                characterProfilesContent.innerHTML = '';
+            }
+            const profileElement = document.createElement('div');
+            profileElement.classList.add('character-profile-detail'); // Use a more specific class if needed
+            profileElement.innerHTML = escapeHtml(data.content);
+            characterProfilesContent.appendChild(profileElement);
+            characterProfilesContent.scrollTop = characterProfilesContent.scrollHeight;
+        } else if (data.agent_name === 'book_worldbuilder' && data.type === 'final_answer') {
+            if (worldDetailsContent.innerHTML.includes('<p>World details will appear here')) {
+                worldDetailsContent.innerHTML = ''; // Clear initial message
+            }
+            const detailElement = document.createElement('div');
+            detailElement.className = 'world-detail'; // Use a specific class for styling if needed
+            detailElement.innerHTML = data.data; // Assuming data.data contains the HTML formatted world details
+            worldDetailsContent.appendChild(detailElement);
+        } else if (data.type === 'agent_log' || data.type === 'tool_log' || data.type === 'tool_input' || data.type === 'tool_output' || data.type === 'final_answer' || data.type === 'error' || data.type === 'info' || data.type === 'debug') {
+            addMessageToLog(data, target, prefix);
+        }
     }
 
     function addMessageToLog(data, targetDiv, prefix = '') {
@@ -635,7 +725,13 @@ document.addEventListener('DOMContentLoaded', () => {
         memorySearchResultsDiv.innerHTML = 'Searching...';
         try {
             const response = await fetch(`/api/memory/search?query=${encodeURIComponent(query)}&session_id=${currentSessionId}`);
-            if (!response.ok) { const err = await response.json(); memorySearchResultsDiv.innerHTML = `Error: ${err.detail || response.statusText}`; return; }
+            if (!response.ok) { 
+                const err = await response.json(); 
+                // memorySearchResultsDiv.innerHTML = `Error: ${err.detail || response.statusText}`; 
+                displayGlobalError(`Memory search error: ${err.detail || response.statusText}`);
+                memorySearchResultsDiv.innerHTML = '<p class="error-text">Search failed.</p>'; // Keep a simple message in the results div
+                return; 
+            }
             const results = await response.json();
             memorySearchResultsDiv.innerHTML = '';
             if (results.results && results.results.length > 0) {
@@ -647,7 +743,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 memorySearchResultsDiv.appendChild(ul);
             } else { memorySearchResultsDiv.textContent = 'No results found.'; }
-        } catch (error) { console.error('Error searching memory:', error); memorySearchResultsDiv.textContent = 'Error performing memory search.'; }
+        } catch (error) { 
+            console.error('Error searching memory:', error); 
+            // memorySearchResultsDiv.textContent = 'Error performing memory search.'; 
+            displayGlobalError(`Error performing memory search: ${error.message}`);
+            memorySearchResultsDiv.innerHTML = '<p class="error-text">Search failed.</p>';
+        }
     });
 
     clearMemoryBtn.addEventListener('click', async () => {
@@ -659,10 +760,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({session_id: currentSessionId})
             });
-            if (!response.ok) { const err = await response.json(); memorySearchResultsDiv.innerHTML = `Error: ${err.detail || response.statusText}`; return; }
+            if (!response.ok) { 
+                const err = await response.json(); 
+                // memorySearchResultsDiv.innerHTML = `Error: ${err.detail || response.statusText}`; 
+                displayGlobalError(`Failed to clear memory: ${err.detail || response.statusText}`);
+                memorySearchResultsDiv.innerHTML = '<p class="error-text">Clear memory failed.</p>';
+                return; 
+            }
             const result = await response.json();
             memorySearchResultsDiv.textContent = result.message || 'Memory cleared.';
-        } catch (error) { console.error('Error clearing memory:', error); memorySearchResultsDiv.textContent = 'Error clearing memory.'; }
+        } catch (error) { 
+            console.error('Error clearing memory:', error); 
+            // memorySearchResultsDiv.textContent = 'Error clearing memory.'; 
+            displayGlobalError(`Error clearing memory: ${error.message}`);
+            memorySearchResultsDiv.innerHTML = '<p class="error-text">Clear memory failed.</p>';
+        }
     });
 
     // File Upload Handling
@@ -702,10 +814,11 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .catch(error => {
                 console.error('Error uploading file:', error);
-                addMessageToLog({
-                    type: 'error',
-                    content: `File upload failed: ${error.message}`
-                }, conversationDiv);
+                // addMessageToLog({
+                //     type: 'error',
+                //     content: `File upload failed: ${error.message}`
+                // }, conversationDiv);
+                displayGlobalError(`File upload failed: ${error.message}`);
             });
         }
     }
@@ -728,10 +841,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Error fetching system status:', error);
                 document.getElementById('api-status').textContent = 'Offline';
                 document.getElementById('api-status').className = 'status-value error';
+                displayGlobalError('Failed to fetch system status. API might be offline.');
             });
     }
     
     // Initial load
     fetchAgentProfiles(); // This will also trigger selectAgentForSession and then fetchSessionLLMParameters
     // fetchSessionLLMParameters(); // Called by fetchAgentProfiles after selection
+    setEmptyState(plotOutlineContent, 'Plot details from the Book Plotter agent will appear here.', 'fas fa-feather-alt');
+    setEmptyState(characterProfilesContent, 'Character details from the Character Developer agent will appear here.', 'fas fa-user-edit');
+    setEmptyState(worldDetailsContent, 'World details from the World Builder agent will appear here.', 'fas fa-globe');
 });
