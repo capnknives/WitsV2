@@ -1,0 +1,76 @@
+{
+  "project_name": "Chronicles of the Starlight Drifter",
+  "overall_plot_summary": "A space opera following Captain Eva Rostova as she discovers a coded message leading to an ancient treasure that could shift the balance of power in the Outer Rim territories.",
+  "detailed_chapter_outlines": [
+    {
+      "chapter_number": 1,
+      "title": "The Comet's Tail",
+      "summary": "Introduction to Captain Eva Rostova and her ship as they complete a routine cargo delivery on the edge of Alliance space.",
+      "key_scenes": [
+        "Eva negotiating with a difficult client",
+        "First glimpse of Eva's mysterious past when approached by Alliance officials",
+        "Eva receiving the encrypted transmission while leaving orbit"
+      ]
+    },
+    {
+      "chapter_number": 2,
+      "title": "Encoded Secrets",
+      "summary": "Eva attempts to decode the mysterious message, leading her to seek help from an old contact.",
+      "key_scenes": [
+        "Eva analyzing the message in her ship's data center",
+        "Flashback to Eva's Alliance training",
+        "Meeting with the cryptographer in a shady spaceport bar"
+      ]
+    }
+  ],
+  "character_profiles": [
+    {
+      "name": "Captain Eva Rostova",
+      "description": "A former Alliance pilot, now a freelance trader with a mysterious past and a customized freighter, 'The Comet's Tail'.",
+      "role": "Protagonist",
+      "motivations": [
+        "Finding redemption for past failures",
+        "Protecting her independence",
+        "Uncovering the truth behind her family's disappearance"
+      ],
+      "background": "Born to a mining family on Kessel-9, Eva excelled as a pilot and joined the Alliance fleet at 18. After a classified incident seven years ago, she left the service and began working as an independent trader."
+    },
+    {
+      "name": "Commander Vax Doran",
+      "description": "An ambitious Alliance officer with a personal grudge against Eva.",
+      "role": "Antagonist",
+      "motivations": [
+        "Climbing the ranks of Alliance command",
+        "Proving Eva was responsible for a mission failure",
+        "Securing the ancient treasure for himself"
+      ],
+      "background": "Born to an elite political family, Vax has always had connections but yearns to prove his own worth through military accomplishment."
+    }
+  ],
+  "world_building_notes": {
+    "locations": {
+      "The Outer Rim": "A lawless region of space beyond Alliance jurisdiction, home to independent colonies, outlaw groups, and ancient ruins.",
+      "New Vega Station": "A massive space station serving as a trading hub between Alliance territory and the Outer Rim.",
+      "The Labyrinth": "An asteroid field hiding the rumored location of the ancient treasure."
+    },
+    "lore": {
+      "The Progenitors": "An ancient alien civilization that disappeared millennia ago, leaving behind advanced technology.",
+      "The Great Collapse": "An event 500 years ago that fractured the old government and led to the formation of the Alliance."
+    },
+    "rules": {
+      "FTL Travel": "Requires specialized drives and calculations. Most civilian ships can make 3-5 light-year jumps before needing to recalibrate.",
+      "Alliance Jurisdiction": "The Alliance governs the Core Systems and Adjacent Sectors but has limited authority in the Outer Rim."
+    }
+  },
+  "generated_prose": {
+    "1": {
+      "chapter_number": 1,
+      "scenes": {
+        "Opening - Docking Bay": "The Comet's Tail eased into docking bay seven with a pneumatic hiss, its repulsors powering down as Eva Rostova's practiced hands danced across the control panel. Through the viewport, New Vega Station sprawled before her—a gleaming metal flower blooming in the void, petals of neon and starlight..."
+      }
+    }
+  },
+  "revision_notes": "Strengthen Eva's personal stake in finding the treasure. Consider adding more tension in early chapters between her desire for independence and the growing realization that she can't solve this mystery alone.",
+  "writing_style_guide": "Fast-paced and visual, with emphasis on action scenes and terse dialogue. Scientific elements should feel plausible but not overly technical.",
+  "tone_guide": "Blend of optimism and grit. Characters face genuine dangers but ultimately the story should convey hope that determination and ingenuity can overcome seemingly impossible odds."
+}

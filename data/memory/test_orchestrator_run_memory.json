@@ -1,0 +1,80 @@
+[
+  {
+    "id": "mem_20250519133343438505_2f5c5c",
+    "timestamp": "2025-05-19T13:33:43.438505",
+    "type": "ORCHESTRATOR_INIT",
+    "source": "test_orchestrator_profile",
+    "content": {
+      "text": "Orchestrator initialized with goal: Create a new book project titled 'Chronicles of the Starlight Drifter'. Set the genre to 'Space Opera'. Then, navigate to its Story Dashboard. Add a main character named 'Captain Eva Rostova' with the description 'A former Alliance pilot, now a freelance trader with a mysterious past and a customized freighter, \"The Comet\\'s Tail\".' Next, add a key plot point: 'Eva intercepts a coded message hinting at a lost treasure that could shift the balance of power in the Outer Rim.'"
+    },
+    "importance": 0.5,
+    "metadata": {
+      "session_id": "test_session_orchestrator_run_001",
+      "user_goal": "Create a new book project titled 'Chronicles of the Starlight Drifter'. Set the genre to 'Space Opera'. Then, navigate to its Story Dashboard. Add a main character named 'Captain Eva Rostova' with the description 'A former Alliance pilot, now a freelance trader with a mysterious past and a customized freighter, \"The Comet\\'s Tail\".' Next, add a key plot point: 'Eva intercepts a coded message hinting at a lost treasure that could shift the balance of power in the Outer Rim.'",
+      "timestamp": "2025-05-19T13:33:43.438505"
+    }
+  },
+  {
+    "id": "mem_20250519133343443131_2ff1ec",
+    "timestamp": "2025-05-19T13:33:43.443131",
+    "type": "ORCHESTRATOR_LLM_PROMPT",
+    "source": "test_orchestrator_profile",
+    "content": {
+      "text": "LLM Prompt for iteration 1 (see debug for full prompt)"
+    },
+    "importance": 0.5,
+    "metadata": {
+      "session_id": "test_session_orchestrator_run_001",
+      "iteration": 1,
+      "timestamp": "2025-05-19T13:33:43.443131"
+    }
+  },
+  {
+    "id": "mem_20250519133343446131_a6e0f1",
+    "timestamp": "2025-05-19T13:33:43.446131",
+    "type": "ORCHESTRATOR_LLM_RESPONSE_RAW",
+    "source": "test_orchestrator_profile",
+    "content": {
+      "text": "Raw LLM response for iteration 1",
+      "tool_output": "{\"thought_process\": {\"thought\": \"Mock thought: User wants to create a book project.\", \"reasoning\": \"The prompt mentions 'Create a new book project titled \\\"Chronicles of the Starlight Drifter\\\"'. This indicates book writing mode.\", \"plan\": [\"Extract project name.\", \"Confirm book writing mode.\", \"Delegate to Book Agent if project name is valid.\"], \"critique\": \"The extraction of the project name needs to be robust.\", \"confidence_score\": 0.9}, \"chosen_action\": {\"action_type\": \"tool_call\", \"tool_call\": {\"tool_name\": \"MockBookAgent\", \"arguments\": {\"goal\": \"Manage book project: Chronicles of the Starlight Drifter based on user prompt: \\\\\\nYou are the Orchestrator Agent. Your primary rol...\"}}}, \"project_name_extracted\": \"Chronicles of the Starlight Drifter\"}"
+    },
+    "importance": 0.5,
+    "metadata": {
+      "session_id": "test_session_orchestrator_run_001",
+      "iteration": 1,
+      "timestamp": "2025-05-19T13:33:43.446131"
+    }
+  },
+  {
+    "id": "mem_20250519133343449136_98d7f7",
+    "timestamp": "2025-05-19T13:33:43.449136",
+    "type": "ORCHESTRATOR_LLM_RESPONSE_PARSED",
+    "source": "test_orchestrator_profile",
+    "content": {
+      "text": "Parsed LLM response for iteration 1",
+      "tool_output": "\"{\\\"thought_process\\\":{\\\"thought\\\":\\\"Mock thought: User wants to create a book project.\\\",\\\"reasoning\\\":\\\"The prompt mentions 'Create a new book project titled \\\\\\\"Chronicles of the Starlight Drifter\\\\\\\"'. This indicates book writing mode.\\\",\\\"plan\\\":[\\\"Extract project name.\\\",\\\"Confirm book writing mode.\\\",\\\"Delegate to Book Agent if project name is valid.\\\"]},\\\"chosen_action\\\":{\\\"action_type\\\":\\\"tool_call\\\",\\\"tool_call\\\":{\\\"tool_name\\\":\\\"MockBookAgent\\\",\\\"arguments\\\":{\\\"goal\\\":\\\"Manage book project: Chronicles of the Starlight Drifter based on user prompt: \\\\\\\\\\\\nYou are the Orchestrator Agent. Your primary rol...\\\"}},\\\"delegate_to_agent_key\\\":null,\\\"delegated_task_description\\\":null,\\\"final_answer\\\":null,\\\"clarification_question\\\":null}}\""
+    },
+    "importance": 0.5,
+    "metadata": {
+      "session_id": "test_session_orchestrator_run_001",
+      "iteration": 1,
+      "timestamp": "2025-05-19T13:33:43.449136"
+    }
+  },
+  {
+    "id": "mem_20250519133343451141_a49e58",
+    "timestamp": "2025-05-19T13:33:43.451141",
+    "type": "ORCHESTRATOR_TOOL_ARGS",
+    "source": "test_orchestrator_profile",
+    "content": {
+      "text": "Tool args for MockBookAgent in iteration 1",
+      "tool_output": "{\n  \"goal\": \"Manage book project: Chronicles of the Starlight Drifter based on user prompt: \\\\\\nYou are the Orchestrator Agent. Your primary rol...\"\n}"
+    },
+    "importance": 0.5,
+    "metadata": {
+      "session_id": "test_session_orchestrator_run_001",
+      "iteration": 1,
+      "timestamp": "2025-05-19T13:33:43.451141"
+    }
+  }
+]

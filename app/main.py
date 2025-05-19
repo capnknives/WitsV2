@@ -10,6 +10,7 @@ import os
 import uuid
 import aiofiles
 from datetime import datetime
+import logging # Added import for logging
 
 # Import the agent service
 from app.services.agent_service import agent_service_instance
@@ -19,7 +20,7 @@ from app.utils import get_or_create_agent_for_session, update_llm_for_session_ag
 # Import agent and core components (adjust paths as necessary)
 from agents.orchestrator_agent import OrchestratorAgent, StreamData # Import StreamData
 from core.llm_interface import LLMInterface
-from core.memory_manager import MemoryManager
+from core.memory_manager import MemoryManager, RES, CUDA_DEVICE # Import RES and CUDA_DEVICE
 from core.tool_registry import ToolRegistry
 from core.faiss_utils import create_gpu_index # Added import
 import numpy as np # Added import
@@ -34,6 +35,8 @@ from tools.git_tools import GitTool
 
 # Import debug router
 from app.routes.debug_routes import debug_router
+# Import book projects router
+from app.routes.api_routes import router as book_projects_router # Ensure this alias is unique if api_routes also has a router
 
 app = FastAPI()
 
@@ -170,6 +173,9 @@ async def startup_event():
 
 # Include the debug router
 app.include_router(debug_router)
+
+# Include the book projects router
+app.include_router(book_projects_router)
 
 # --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse)
@@ -337,7 +343,8 @@ async def search_memory(session_id: str, query: str, k: Optional[int] = 5):
         if query_embedding is None:
             raise HTTPException(status_code=500, detail="Could not generate query embedding.")
 
-        similar_segments_info = global_memory_manager._search_similar(query_embedding, k=k)
+        search_k = k if k is not None else 5 # Ensure k is an int
+        similar_segments_info = global_memory_manager._search_similar(query_embedding, k=search_k)
         
         results: List[MemorySearchResultItem] = []
         for score, segment_id in similar_segments_info:
@@ -427,8 +434,8 @@ async def clear_memory(payload: MemoryClearRequest):
             if global_memory_manager.vector_dim and global_memory_manager.embedding_model:
                 global_memory_manager.index = create_gpu_index(
                     global_memory_manager.vector_dim, 
-                    global_memory_manager.RES, # Access RES via instance
-                    global_memory_manager.CUDA_DEVICE # Access CUDA_DEVICE via instance
+                    RES, # Use imported RES
+                    CUDA_DEVICE # Use imported CUDA_DEVICE
                 )
                 global_memory_manager.id_to_faiss_idx.clear()
                 global_memory_manager.faiss_idx_to_id.clear()
@@ -465,19 +472,12 @@ async def upload_file(request: Request, session_id: str = Form(...), file: Uploa
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file name provided.")
 
-    # Ensure user_files directory exists (relative to project root)
-    # The AppConfig validator for output_directory might not cover this specific path.
-    # file_tool_base_path is already resolved to an absolute path by AppConfig.
-    user_files_dir = app_config.file_tool_base_path 
+    # Use output_directory for user files, creating a 'user_uploads' subdirectory
+    base_upload_dir = os.path.join(app_config.output_directory, "user_uploads")
     
-    # It's good practice to ensure the directory exists, though AppConfig might handle some.
-    # For user-specific subdirectories, create them here.
-    session_specific_upload_dir = os.path.join(user_files_dir, session_id)
+    session_specific_upload_dir = os.path.join(base_upload_dir, session_id)
     os.makedirs(session_specific_upload_dir, exist_ok=True)
 
-    # Sanitize filename to prevent directory traversal issues
-    # Using werkzeug.utils.secure_filename is a good practice if available, 
-    # but a simple custom sanitizer for now.
     original_filename = file.filename if file.filename else "unnamed_file"
     safe_filename = "".join(c if c.isalnum() or c in ('.', '_', '-') else '_' for c in original_filename)
     if not safe_filename: # Handle cases where filename becomes empty after sanitization
@@ -523,25 +523,17 @@ async def chat_stream(payload: ChatRequest):
     Handles chat requests, streams responses from the agent.
     """
     if not global_memory_manager or not global_tool_registry:
-        # This check should ideally be more robust, perhaps using FastAPI dependencies
-        # to ensure services are available.
         print("Error: Core services (MemoryManager or ToolRegistry) not available.")
         raise HTTPException(status_code=503, detail="Core services not available. Please try again shortly.")
 
     session_id = payload.session_id
-    
-    # Support both 'message' and 'goal' fields for backward compatibility
     user_message = payload.message if hasattr(payload, 'message') and payload.message is not None else payload.goal
-    
-    # agent_profile_name will be None if not sent by client, get_or_create_agent_for_session handles defaults.
-    agent_profile_name = payload.agent_profile_name 
+    agent_profile_name = payload.agent_profile_name
 
     if not session_id or not user_message:
         raise HTTPException(status_code=400, detail="session_id and message are required.")
         
     try:
-        # Get or create the agent for the session.
-        # This utility function handles LLM setup based on session/profile config.
         agent = await get_or_create_agent_for_session(
             session_id=session_id,
             profile_name=agent_profile_name if agent_profile_name else "", 
@@ -551,37 +543,41 @@ async def chat_stream(payload: ChatRequest):
         )
     except Exception as e:
         print(f"Error creating/getting agent for session {session_id}: {e}")
-        # Log the full error server-side (e.g., using app.logger if configured)
         raise HTTPException(status_code=500, detail=f"Failed to initialize agent: {str(e)}")
 
     async def stream_generator() -> AsyncGenerator[str, None]:
         try:
-            # The agent's run method is an async generator yielding StreamData objects
-            # Support both older user_goal param and newer user_input_or_task param
             if hasattr(agent, "run") and callable(agent.run):
                 run_params = {}
-                # Check if run method accepts user_input_or_task parameter
                 if hasattr(agent.run, "__code__") and "user_input_or_task" in agent.run.__code__.co_varnames:
                     run_params["user_input_or_task"] = user_message
                 else:
-                    # Fall back to older parameter name
                     run_params["user_goal"] = user_message
                 
-                async for data_chunk in agent.run(**run_params, context=None):
-                    yield f"{data_chunk.model_dump_json()}\\n"
+                # Pass relevant parts of the payload as context
+                # The agent's run method expects context: Optional[Dict[str, Any]]
+                # We can pass the session_id and other relevant info from the payload.
+                initial_context = payload.model_dump() # Pass the whole ChatRequest as context
+                                
+                stream = agent.run(**run_params, context=initial_context)
+                if hasattr(stream, "__aiter__"): 
+                    async for data_chunk in stream:
+                        yield f"{data_chunk.model_dump_json()}\\n"
+                else:
+                    error_content = "Agent's run method did not return an async generator."
+                    logging.error(f"Session {session_id}: {error_content} for agent {agent.agent_name if agent else 'Unknown'}") 
+                    error_stream_data = StreamData(type="error", content=error_content, error_details="AgentInterfaceError")
+                    yield f"{error_stream_data.model_dump_json()}\\n"
             else:
                 error_stream_data = StreamData(type="error", content="Agent has no run method.", error_details="Implementation error")
                 yield f"{error_stream_data.model_dump_json()}\\n"
         except Exception as e:
             error_detail = f"Error during agent execution: {str(e)}"
-            # Log the full error server-side
-            print(f"ERROR in chat_stream for session {session_id}, agent {agent.agent_name if agent else 'Unknown'}: {error_detail}")
-            # Yield a final error message to the client, using the StreamData model
+            logging.exception(f"ERROR in chat_stream for session {session_id}, agent {agent.agent_name if agent else 'Unknown'}: {error_detail}")
             error_stream_data = StreamData(type="error", content="Agent execution failed.", error_details=str(e))
             yield f"{error_stream_data.model_dump_json()}\\n"
         finally:
             print(f"Stream finished for session {session_id}, message: '{user_message[:50]}...'")
-            # Perform any cleanup for this stream if necessary
 
     return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
 

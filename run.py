@@ -20,43 +20,31 @@ if sys.version_info.major != 3 or sys.version_info.minor != 10:
     print("Please use the startup scripts or activate the proper conda environment.")
     print("=" * 80)
 
+# Core imports
 import asyncio
-import argparse
-import os
-import sys
-import time
 import logging
+import os
+import signal
 from datetime import datetime
-import uvicorn
-from typing import List, Dict # Added List and Dict
-import uuid # Add to imports
+import uuid
+import json
+from pathlib import Path
+import yaml
 
-# Ensure the project root is in sys.path to allow imports from core, agents, tools
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from core.debug_utils import setup_logging, DebugInfo, log_debug_info
-
-from core.config import load_app_config, AppConfig
+# Application imports
+from core.config import AppConfig
+from core.debug_utils import setup_logging
 from core.llm_interface import LLMInterface
-from core.tool_registry import ToolRegistry
 from core.memory_manager import MemoryManager
+from core.tool_registry import ToolRegistry
+from core.schemas import StreamData
+
+# Agent imports
 from agents.wits_control_center_agent import WitsControlCenterAgent
 from agents.orchestrator_agent import OrchestratorAgent
-
-# Import specialized agents
-from agents.specialized.engineer_agent import EngineerAgent
-from agents.specialized.scribe_agent import ScribeAgent
-from agents.specialized.researcher_agent import ResearcherAgent
-from agents.specialized.analyst_agent import AnalystAgent
-from agents.specialized.plotter_agent import PlotterAgent
-from agents.specialized.character_agent import CharacterDevelopmentAgent
-from agents.specialized.worldbuilder_agent import WorldbuilderAgent
-from agents.specialized.prose_agent import ProseGenerationAgent
 from agents.specialized.editor_agent import EditorAgent
 
-# Import all the tools we've implemented
+# Tool imports
 from tools.calculator_tool import CalculatorTool
 from tools.datetime_tool import DateTimeTool
 from tools.web_search_tool import WebSearchTool
@@ -64,285 +52,182 @@ from tools.file_tools import ReadFileTool, WriteFileTool, ListFilesTool
 from tools.project_file_tools import ProjectFileReaderTool
 from tools.git_tools import GitTool
 
+# Global logger
+logger = logging.getLogger('WITS')
+
+def configure_console_logging():
+    """Configure console logging with enhanced visibility for debugging."""
+    # Setup root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # Set root logger to DEBUG to catch all messages
+    
+    # Remove any existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Create console handler with INFO level
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Create detailed formatter
+    formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)-12s | %(message)s')
+    console_handler.setFormatter(formatter)
+    
+    # Add handler to root logger
+    root_logger.addHandler(console_handler)
+    
+    # Configure specific loggers for key components
+    component_loggers = [
+        "WITS.agents",
+        "WITS.OrchestratorAgent",
+        "WITS.LLMInterface",
+        "WITS.Tools",
+        "WITS.ProseGenerationAgent"
+    ]
+    
+    for logger_name in component_loggers:
+        component_logger = logging.getLogger(logger_name)
+        component_logger.setLevel(logging.DEBUG)  # Set component loggers to DEBUG
+        # Don't add handler - they'll inherit from root
+    
+    # Log startup message to verify logging is working
+    logger.info("Logging system initialized - Console handler configured")
+
 async def start_wits_cli(config: AppConfig):
-    logger.info(f"Starting WITS CLI using configuration: {{config.app_name}}")
-    
-    # 1. Initialize LLMInterface
-    default_temp = 0.7 # Define a default float temperature
-    if hasattr(config, 'default_temperature') and isinstance(config.default_temperature, (float, int)):
-        default_temp = float(config.default_temperature)
-    
-    llm_interface = LLMInterface(
-        model_name=config.models.default,  # Or config.models.orchestrator / planner as appropriate
-        temperature=default_temp, # Ensure this is a float
-        ollama_url=config.ollama_url,
-        request_timeout=config.ollama_request_timeout
-    )
+    """Start WITS in CLI mode."""
+    logger.info(f"Starting WITS CLI using configuration: {config.app_name}")
 
-    # 2. Initialize ToolRegistry and load tools
-    tool_registry = ToolRegistry()
+    # Initialize session ID at the start for proper error handling scope
+    current_session_id = str(uuid.uuid4())
     
-    # Register all implemented tools
-    # Calculator tool
-    calculator = CalculatorTool()
-    tool_registry.register_tool(calculator)
-    
-    # DateTime tool
-    datetime_tool = DateTimeTool()
-    tool_registry.register_tool(datetime_tool)
-    
-    # File tools
-    read_file_tool = ReadFileTool(config.model_dump())
-    tool_registry.register_tool(read_file_tool)
-    
-    write_file_tool = WriteFileTool(config.model_dump())
-    tool_registry.register_tool(write_file_tool)
-    
-    # Project tools for self-improvement capabilities
-    project_file_reader = ProjectFileReaderTool(config.model_dump())
-    tool_registry.register_tool(project_file_reader)
-    
-    git_tool = GitTool(config.model_dump())
-    tool_registry.register_tool(git_tool)
-    
-    list_files_tool = ListFilesTool(config.model_dump())
-    tool_registry.register_tool(list_files_tool)
-    
-    # Web search tool (if internet access is enabled)
-    if config.internet_access:
-        web_search_tool = WebSearchTool(config.model_dump())
-        tool_registry.register_tool(web_search_tool)
-        print(f"[WITS CLI] Internet access is enabled. Web search tool registered.")
-    
-    # Git tool (if git integration is enabled)
-    if config.git_integration.enabled:
-        git_tool = GitTool(config.model_dump())
-        tool_registry.register_tool(git_tool)
-        print(f"[WITS CLI] Git integration is enabled. Git tool registered.")
-    
-    print(f"[WITS CLI] Registered tools: {[tool.name for tool in tool_registry.get_all_tools()]}")
-
-    # 3. Initialize MemoryManager
-    memory_manager = MemoryManager(config)
-
-    # 4. Initialize Specialized Agents (if any defined in config)
-    
-    # Initialize EngineerAgent
-    engineer_tool_registry = ToolRegistry()
-    engineer_tool_registry.register_tool(project_file_reader)
-    engineer_tool_registry.register_tool(git_tool)
-    engineer_tool_registry.register_tool(read_file_tool)
-    engineer_tool_registry.register_tool(write_file_tool)
-    
-    engineer_agent = EngineerAgent(
-        agent_name="WITS_Engineer",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=engineer_tool_registry
-    )
-    
-    # Initialize ScribeAgent
-    scribe_agent = ScribeAgent(
-        agent_name="WITS_Scribe",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager
-    )
-    
-    # Initialize AnalystAgent
-    analyst_agent = AnalystAgent(
-        agent_name="WITS_Analyst",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager
-    )
-    
-    # Initialize ResearcherAgent
-    researcher_agent = ResearcherAgent(
-        agent_name="WITS_Researcher",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager
-    )
-    
-    # Initialize additional specialized agents
-    plotter_agent = PlotterAgent(
-        agent_name="WITS_Book_Plotter",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=tool_registry
-    )
-    
-    character_dev_agent = CharacterDevelopmentAgent(
-        agent_name="WITS_Book_Character_Developer",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=tool_registry
-    )
-    
-    worldbuilder_agent = WorldbuilderAgent(
-        agent_name="WITS_Book_Worldbuilder",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=tool_registry
-    )
-    
-    prose_generator_agent = ProseGenerationAgent(
-        agent_name="WITS_Book_Prose_Generator",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=tool_registry
-    )
-    
-    editor_agent = EditorAgent(
-        agent_name="WITS_Book_Editor",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        tool_registry=tool_registry
-    )
-    
-    # Register all specialized agents
-    specialized_agents = {
-        "engineer": engineer_agent,
-        "scribe": scribe_agent,
-        "researcher": researcher_agent,
-        "analyst": analyst_agent,
-        "book_plotter": plotter_agent,
-        "book_character_dev": character_dev_agent,
-        "book_worldbuilder": worldbuilder_agent,
-        "book_prose_generator": prose_generator_agent,
-        "book_editor": editor_agent,
-    }
-    
-    # 5. Initialize OrchestratorAgent
-    orchestrator = OrchestratorAgent(
-        agent_name="WITS_Orchestrator", 
-        config=config,  # Pass AppConfig
-        llm_interface=llm_interface, 
-        memory_manager=memory_manager,
-        tools=tool_registry,
-        delegation_targets=specialized_agents
-        # ethics_manager=ethics_manager # Pass if orchestrator uses it directly
-    )
-
-    # 6. Initialize WitsControlCenterAgent
-    wits_control_center = WitsControlCenterAgent(
-        agent_name="WitsControlCenterAgent",
-        config=config,
-        llm_interface=llm_interface,
-        memory_manager=memory_manager,
-        orchestrator_delegate=orchestrator, # Pass the orchestrator instance
-        specialized_agents=specialized_agents # Pass the dict of specialized agents
-    )
-    logger.info("WitsControlCenterAgent initialized for CLI.")
-
-    current_session_id = f"cli_session_{uuid.uuid4().hex[:12]}" # Generate a unique session ID
-    logger.info(f"CLI Session ID: {current_session_id}")
-    current_conversation_history = [] # Initialize history for this session
-
-    print(f"Welcome to {config.app_name} (CLI Mode). Type 'exit' or 'quit' to end.")
-    print(f"Session ID: {current_session_id}")
-
-    while True:
-        try:
-            raw_user_input = input("WITS v2 >> ").strip()
-            if raw_user_input.lower() in ["exit", "quit", "shutdown"]:
+    try:
+        # Initialize LLM Interface with default model and temperature
+        llm_interface = LLMInterface(
+            model_name=config.models.default,
+            temperature=config.default_temperature if config.default_temperature is not None else 0.7
+        )
+        
+        # Initialize Memory Manager
+        memory_manager = MemoryManager(config)
+        await memory_manager.initialize_db()
+        
+        # Initialize Tool Registry
+        tool_registry = ToolRegistry()
+        
+        # Initialize specialized agents (empty for now)
+        specialized_agents = {}
+        
+        # Initialize OrchestratorAgent with empty delegation targets for now
+        orchestrator_agent = OrchestratorAgent(
+            agent_name="OrchestratorAgent",
+            config=config,
+            llm_interface=llm_interface,
+            memory_manager=memory_manager,
+            tool_registry=tool_registry,
+            delegation_targets={}  # Empty dict for now
+        )
+        
+        # Initialize the control center agent with all dependencies
+        wcca = WitsControlCenterAgent(
+            agent_name="WitsControlCenterAgent",
+            config=config,
+            llm_interface=llm_interface,
+            memory_manager=memory_manager,
+            orchestrator_delegate=orchestrator_agent,
+            specialized_agents=specialized_agents
+        )
+        
+        logger.info("WitsControlCenterAgent initialized for CLI.")
+        logger.info(f"CLI Session ID: {current_session_id}")
+        
+        while True:
+            # Get user input
+            raw_user_input = input("\nUser: ").strip()
+            
+            # Check for exit command
+            if raw_user_input.lower() in ['exit', 'quit', 'q']:
                 logger.info(f"Exiting {config.app_name} CLI.")
                 break
-            if not raw_user_input:
-                continue
+                
+            logger.info(f"CLI User Input for session '{current_session_id}': {raw_user_input}")
             
-            # Add user input to the session's conversation history for WCCA context
-            # WCCA itself will save this to persistent memory with the session_id
-            current_conversation_history.append({"role": "user", "content": raw_user_input})
-
-            logger.info(f"CLI User Input for session '{current_session_id}': {{raw_user_input}}")
-
-            assistant_response_parts = []
-            async for data_packet in wits_control_center.run(
-                raw_user_input=raw_user_input,
-                conversation_history=current_conversation_history[:-1], # Pass history *before* current input
-                session_id=current_session_id
-            ):
-                if data_packet.type == "clarification_request_to_user":
-                    print(f"WITS: {data_packet.content}")
-                    assistant_response_parts.append(data_packet.content)
-                elif data_packet.type == "final_answer":
-                    print(f"WITS: {data_packet.content}")
-                    assistant_response_parts.append(data_packet.content)
-                elif data_packet.type == "info":
-                    logger.info(f"WCCA Info for session '{current_session_id}': {data_packet.content}")
-                    # Optionally print info to console if desired, e.g., for debugging
-                    # print(f"[INFO] {data_packet.content}") 
-                elif data_packet.type == "error":
-                    logger.error(f"WCCA Error for session '{current_session_id}': {data_packet.content}")
-                    print(f"[ERROR] {data_packet.content}")
-                    assistant_response_parts.append(f"[ERROR] {data_packet.content}") # Also add error to history
-                else:
-                    # Handle other stream types if necessary, or log them
-                    logger.debug(f"WCCA Stream '{data_packet.type}' for session '{current_session_id}': {data_packet.content}")
-            
-            # After WCCA stream is complete, if there were assistant responses, add them to history
-            if assistant_response_parts:
-                full_assistant_response = " ".join(assistant_response_parts)
-                current_conversation_history.append({"role": "assistant", "content": full_assistant_response})
-            
-            # Optional: Trim conversation history if it gets too long for WCCA prompt context
-            # MAX_HISTORY_TURNS_FOR_WCCA_PROMPT = 5 # Example limit (5 pairs of user/assistant)
-            # if len(current_conversation_history) > MAX_HISTORY_TURNS_FOR_WCCA_PROMPT * 2:
-            #     current_conversation_history = current_conversation_history[-(MAX_HISTORY_TURNS_FOR_WCCA_PROMPT*2):]
-
-
-        except KeyboardInterrupt:
-            print("\nExiting WITS CLI (Keyboard Interrupt). Goodbye!")
-            break
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred in WITS CLI loop for session '{current_session_id}': {e}")
-            print(f"An unexpected error occurred: {e}")
+            # Process input through WCCA using the run method
+            try:
+                async for data_packet in wcca.run(raw_user_input, [], current_session_id):
+                    # Handle different types of responses
+                    if data_packet.type == "info":
+                        logger.info(f"WCCA Info for session '{current_session_id}': {data_packet.content}")
+                        print(f"System: {data_packet.content}")
+                    elif data_packet.type == "error":
+                        logger.error(f"WCCA Error for session '{current_session_id}': {data_packet.content}")
+                        print(f"Error: {data_packet.content}")
+                    else:
+                        logger.debug(f"WCCA Stream '{data_packet.type}' for session '{current_session_id}': {data_packet.content}")
+                        print(data_packet.content)
+                    
+            except Exception as e:
+                logger.exception(f"An error occurred while processing input for session '{current_session_id}': {e}")
+                print(f"Error: {str(e)}")
+                
+    except KeyboardInterrupt:
+        print("\nReceived interrupt signal. Shutting down gracefully...")
+        logger.info(f"Received interrupt signal for session '{current_session_id}'")
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred in WITS CLI loop for session '{current_session_id}': {e}")
+        print(f"An unexpected error occurred: {e}")
+    finally:
+        # Just log shutdown, no need to call close()
+        logger.info(f"WITS CLI shutting down for session '{current_session_id}'")
 
 def start_wits_web_app(config: AppConfig):
-    print("Starting WITS-NEXUS v2 Web App...")
-    # This will be implemented similarly to your v1 app.py, but using the new v2 components
-    print(f"Web app (FastAPI) configured to run via Uvicorn.")
-    print(f"Configured web host: {config.web_interface.host}, port: {config.web_interface.port}")
+    """Start WITS in web mode."""
     try:
-        # Import the FastAPI app instance from app.main
-        # from app.main import app as fastapi_app # No longer needed to import app directly for uvicorn.run string usage
         web_cfg = config.web_interface
-        print(f"Attempting to start Uvicorn server for FastAPI app on http://{web_cfg.host}:{web_cfg.port}")
-        uvicorn.run("app.main:app", host=web_cfg.host, port=web_cfg.port, reload=web_cfg.debug) # Use uvicorn.run
-    except ImportError:
-        print("[WEB_ERROR] Could not find app.main or the FastAPI app instance within it. Ensure it's set up correctly.")
+        if not web_cfg.enabled:
+            logger.warning("Web interface is disabled in config. Please enable it to use web mode.")
+            return
+        
+        logger.info(f"Starting WITS Web Application on {web_cfg.host}:{web_cfg.port}")
+        # Web app is started through FastAPI/uvicorn in app/main.py
+        # The app will be configured through the AppConfig passed to it
+        
     except Exception as e:
-        print(f"[WEB_ERROR] Failed to start web application with Uvicorn: {e}")
+        logger.exception("Failed to start web interface")
+        raise
 
 def main_entry():
-    parser = argparse.ArgumentParser(description="WITS-NEXUS v2: Modular AI System with MCP Orchestrator")
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to the configuration file.")
-    parser.add_argument("--mode", type=str, choices=["cli", "web"], default=None, 
-                        help="Force run mode (cli or web). Overrides config.yaml if set.")
-    args = parser.parse_args()
-
-    # Load configuration using the Pydantic-based loader
-    # The config path is resolved relative to core/config.py for consistency
-    config_file_abs_path = os.path.join(PROJECT_ROOT, args.config)
-    app_config = load_app_config(config_file_abs_path)
-
-    # Determine run mode
-    run_mode = args.mode
-    if run_mode is None:  # If not forced by CLI arg, check config
-        run_mode = "web" if app_config.web_interface.enabled else "cli"
-
-    if run_mode == "web":
-        start_wits_web_app(app_config)
-    else:  # Default to CLI
-        asyncio.run(start_wits_cli(app_config))
+    """Main entry point for WITS"""
+    import sys
+    import yaml
+    from pathlib import Path
+    
+    try:
+        config_path = Path('config.yaml')
+        if not config_path.exists():
+            print("Error: config.yaml not found")
+            sys.exit(1)
+            
+        with open(config_path) as f:
+            config_dict = yaml.safe_load(f)
+            config = AppConfig(**config_dict)
+        
+        # Setup logging
+        configure_console_logging()
+        logger.info("Starting WITS...")
+        
+        # Start the web server if configured
+        web_cfg = config.web_interface
+        if web_cfg.enabled:
+            start_wits_web_app(config)
+        else:
+            # Start the event loop and run CLI
+            asyncio.run(start_wits_cli(config))
+        
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal, shutting down...")
+    except Exception as e:
+        logger.exception(f"Failed to start WITS: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main_entry()

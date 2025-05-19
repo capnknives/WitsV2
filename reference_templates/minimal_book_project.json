@@ -1,0 +1,15 @@
+{
+  "project_name": "Chronicles of the Starlight Drifter",
+  "overall_plot_summary": "A space opera following Captain Eva Rostova as she discovers a coded message that could shift the balance of power in the Outer Rim.",
+  "character_profiles": [
+    {
+      "name": "Captain Eva Rostova",
+      "description": "A former Alliance pilot, now a freelance trader with a mysterious past and a customized freighter, 'The Comet's Tail'."
+    }
+  ],
+  "world_building_notes": {
+    "locations": {
+      "The Outer Rim": "A lawless region of space beyond Alliance jurisdiction."
+    }
+  }
+}

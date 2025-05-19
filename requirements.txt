@@ -1,53 +1,286 @@
-# Core
-pyyaml==6.0.1
-pydantic==2.11.4
-typing-extensions>=4.12.2
-
-# Web Framework
-fastapi>=0.104.1
-uvicorn[standard]>=0.23.2
-jinja2>=3.1.4
-python-multipart==0.0.6
-aiofiles==23.1.0  # For static file serving
-
-# LLM Interface
-ollama # Unpinned, resolved to 0.4.8
-
-# Async
-aiohttp>=3.10.11 # Updated to meet auth0-python (indirect dependency) requirement
-
-# Vector embeddings and search
-numpy==1.24.3
-# torch==1.13.1
-transformers==4.31.0
-sentence-transformers==2.2.2
-huggingface-hub>=0.14.1,<0.17.0 # Constrained for sentence-transformers 2.2.2 compatibility
-
-# IMPORTANT: FAISS-GPU Installation
-# For GPU support (required for this application):
-#   1. First install the exact dependencies in this order:
-#      a) Create conda environment: conda create -n faiss_gpu_env2 python=3.10 -y
-#      b) Install NumPy: pip install numpy==1.24.3
-#      c) Install CUDA: conda install -c conda-forge cudatoolkit=11.8 -y
-#      d) Install PyTorch: pip3 install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118
-#      e) Install FAISS-GPU: conda install -c conda-forge faiss-gpu=1.7.4 cudatoolkit=11.8 -y
-#   2. Then install the remaining requirements with: pip install -r requirements.txt
+# This file lists the Python package dependencies for the WITS Nexus v2 application.
+# It is generated from the conda environment 'faiss_gpu_env2' and includes exact versions
+# to ensure reproducibility. Packages installed from local paths are specified with
+# their file URLs.
 #
-# DO NOT have both faiss-cpu and faiss-gpu installed at the same time
+# To install these dependencies, use:
+# pip install -r requirements.txt
+#
+# It's recommended to use a virtual environment (like conda or venv) to manage these
+# dependencies and avoid conflicts with other projects.
 
-# Tools
-requests>=2.31.0
-httpx>=0.27.0 # Added to meet ollama and chromadb (indirect dependency) requirements
-pytz>=2023.3
-python-dateutil>=2.8.2
-beautifulsoup4>=4.12.2  # For web scraping
-matplotlib>=3.7.2  # For visualization
-reportlab>=4.0.4  # For PDF generation
+# -----------------------------------------------------------------------------
+# Core Application & Web Framework
+# Packages for the main application server, web request handling, and templating.
+# -----------------------------------------------------------------------------
+aiofiles==23.1.0                       # Asynchronous file operations, often used with FastAPI/Starlette
+asgiref==3.8.1                         # ASGI framework utility, core for FastAPI/Uvicorn
+fastapi==0.115.9                       # Modern, fast (high-performance) web framework for building APIs
+Flask==3.1.0                           # Micro web framework (may be a dependency or used for specific parts)
+h11==0.16.0                            # HTTP/1.1 client/server library
+Jinja2==3.1.6                          # Templating engine
+itsdangerous==2.2.0                    # Helper for signing data, dependency of Flask/Jinja2
+MarkupSafe==3.0.2                      # Escapes characters for safe use in HTML/XML, dependency of Jinja2
+# python-multipart for form data parsing in FastAPI
+python-multipart @ file:///home/conda/feedstock_root/build_artifacts/python-multipart_1734420773152/work
+starlette==0.45.3                      # ASGI framework/toolkit, foundation for FastAPI
+uvicorn==0.34.2                        # ASGI server, for running FastAPI/Starlette applications
+Werkzeug==3.1.3                        # WSGI utility library, dependency of Flask
 
-# Web App
-python-dotenv>=0.21.0
-websockets>=12.0 # For potential real-time streaming
+# -----------------------------------------------------------------------------
+# Language Models, NLP & AI Agents
+# Packages for interacting with Large Language Models, text processing, and agentic frameworks.
+# -----------------------------------------------------------------------------
+crewai==0.119.0                        # Framework for orchestrating role-playing, autonomous AI agents
+# huggingface_hub for interacting with the Hugging Face Hub (models, datasets)
+huggingface_hub @ file:///home/conda/feedstock_root/build_artifacts/huggingface_hub_1747323652225/work
+instructor==1.8.0                      # Utilities for structured outputs (e.g., Pydantic models) from LLMs
+litellm==1.68.0                        # Interface to various LLM APIs (OpenAI, Azure, Cohere, etc.)
+nltk==3.9.1                            # Natural Language Toolkit for text processing
+openai==1.75.0                         # Official OpenAI Python library for accessing OpenAI API
+openai-whisper==20240930               # OpenAI Whisper for speech-to-text
+safetensors==0.5.3                     # Safe and fast file format for storing tensors, used by Hugging Face
+sentence-transformers==2.2.2           # Framework for state-of-the-art sentence, text and image embeddings
+sentencepiece==0.2.0                   # Unsupervised text tokenizer and detokenizer
+tiktoken==0.9.0                        # Fast BPE tokenizer for use with OpenAI models
+# tokenizers library from Hugging Face
+tokenizers @ file:///D:/bld/tokenizers_1741890302087/work/bindings/python
+# transformers library from Hugging Face for state-of-the-art ML models
+transformers @ file:///home/conda/feedstock_root/build_artifacts/transformers_1744628043087/work
 
-# Optional voice input
-# openai-whisper>=20231117
-# sounddevice>=0.4.6
+# -----------------------------------------------------------------------------
+# Vector Database & Search
+# Packages for creating, managing, and searching vector embeddings.
+# -----------------------------------------------------------------------------
+chromadb==1.0.8                        # AI-native open-source embedding database
+faiss==1.7.4                           # Library for efficient similarity search and clustering of dense vectors
+                                       # Note: This appears to be the CPU version. If FAISS-GPU is required,
+                                       # ensure the correct package (e.g., faiss-gpu) is installed and reflected here.
+
+# -----------------------------------------------------------------------------
+# Data Handling, Manipulation & Scientific Computing
+# Packages for data analysis, numerical computation, and visualization.
+# -----------------------------------------------------------------------------
+contourpy==1.3.2                       # Matplotlib dependency for contour plots
+cycler==0.12.1                         # Matplotlib dependency for composable style cycles
+# datasets library from Hugging Face for accessing and sharing datasets
+datasets @ file:///home/conda/feedstock_root/build_artifacts/datasets_1691593734461/work
+et_xmlfile==2.0.0                      # Low-level library for creating OpenXML files (dependency of openpyxl)
+fonttools==4.58.0                      # Library for manipulating fonts, Matplotlib dependency
+joblib==1.5.0                          # Tools for lightweight pipelining in Python (e.g. for scikit-learn)
+kiwisolver==1.4.8                      # Efficient constraint solver, Matplotlib dependency
+llvmlite==0.44.0                       # Numba dependency, LLVM binding for writing JIT compilers
+matplotlib==3.10.3                     # Comprehensive library for creating static, animated, and interactive visualizations
+matplotlib-inline==0.1.7               # IPython backend for Matplotlib
+mpmath==1.3.0                          # Python library for arbitrary-precision floating-point arithmetic (SymPy dep)
+numba==0.61.2                          # JIT compiler for Python code, often used to speed up NumPy operations
+# numpy for numerical operations
+numpy @ file:///D:/bld/numpy_1682210442656/work
+onnxruntime==1.21.1                    # Cross-platform, high performance ML inferencing engine for ONNX models
+flatbuffers==25.2.10                   # Efficient cross-platform serialization library (ONNX Runtime dep)
+openpyxl==3.1.5                        # Library to read/write Excel 2010 xlsx/xlsm files
+# optree for PyTree manipulation, often used in JAX/ML frameworks
+optree @ file:///D:/bld/optree_1744034224072/work
+orjson==3.10.18                        # Fast, correct JSON library
+# pandas for data analysis and manipulation
+pandas @ file:///D:/bld/pandas_1744430476265/work
+Pillow==11.2.1                         # Python Imaging Library (Fork) for image manipulation
+pyarrow==20.0.0                        # Cross-language development platform for in-memory data (used by Pandas, Datasets)
+PyPika==0.48.9                         # SQL query builder (used by ChromaDB)
+scikit-learn==1.6.1                    # Machine learning library
+scipy==1.15.3                          # Library for scientific and technical computing
+sympy==1.13.3                          # Python library for symbolic mathematics
+threadpoolctl==3.6.0                   # Utility to control thread pools in native libraries (NumPy, SciPy, etc.)
+
+# -----------------------------------------------------------------------------
+# Machine Learning & Deep Learning (Core Frameworks)
+# -----------------------------------------------------------------------------
+torch==2.0.1+cu118                     # PyTorch, an open source machine learning framework (CUDA 11.8 version)
+torchvision==0.15.2+cu118              # PyTorch package for computer vision (CUDA 11.8 version)
+
+# -----------------------------------------------------------------------------
+# Asynchronous Operations & Networking
+# Packages for handling asynchronous tasks and network communications.
+# -----------------------------------------------------------------------------
+# aiohttp for asynchronous HTTP client/server
+aiohttp @ file:///D:/bld/aiohttp_1745255693360/work
+aiohappyeyeballs==2.6.1                # Happy Eyeballs algorithm for faster connection establishment
+aiosignal==1.3.2                       # Manages callbacks for aiohttp
+anyio==4.9.0                           # Asynchronous networking and concurrency library
+# async-timeout for aiohttp
+async-timeout @ file:///home/conda/feedstock_root/build_artifacts/async-timeout_1733235340728/work
+attrs==25.3.0                          # Package for boilerplate-free classes (used by many async/web libs)
+frozenlist==1.6.0                      # List-like structure which implements collections.abc.MutableSequence (aiohttp dep)
+# h2 for HTTP/2 protocol support
+h2 @ file:///home/conda/feedstock_root/build_artifacts/h2_1738578511449/work
+# hpack for HPACK header compression for HTTP/2
+hpack @ file:///home/conda/feedstock_root/build_artifacts/hpack_1737618293087/work
+httpcore==1.0.9                        # Low-level HTTP client, core of HTTPX
+httptools==0.6.4                       # Python binding for nodejs HTTP parser
+httpx==0.28.1                          # Fully featured HTTP client for Python 3, with sync and async APIs
+# hyperframe for HTTP/2 framing
+hyperframe @ file:///home/conda/feedstock_root/build_artifacts/hyperframe_1737618333194/work
+multidict==6.4.3                       # Multidict implementation (aiohttp dep)
+pika==1.3.2                            # Pure-Python RabbitMQ/AMQP 0-9-1 client library
+sniffio==1.3.1                         # Sniff out which async library is being used
+websockets==15.0.1                     # Library for building WebSocket servers and clients
+yarl==1.20.0                           # Yet Another URL library (aiohttp dep)
+
+# -----------------------------------------------------------------------------
+# Utility & General Purpose
+# Various helper libraries for common tasks.
+# -----------------------------------------------------------------------------
+appdirs==1.4.4                         # Small Python module for determining appropriate platform-specific dirs
+annotated-types==0.7.0                 # Reusable constraint types for type hinting (Pydantic dep)
+backoff==2.2.1                         # Function decoration for backoff and retry
+beautifulsoup4==4.13.4                 # Library for pulling data out of HTML and XML files
+blinker==1.9.0                         # Fast, simple object-to-object and broadcast signaling (Flask dep)
+# Brotli compression library
+Brotli @ file:///D:/bld/brotli-split_1725267609074/work
+certifi==2025.4.26                     # Python package for providing Mozilla's CA Bundle (Requests dep)
+cffi==1.17.1                           # Foreign Function Interface for Python calling C code
+chardet==5.2.0                         # Universal character encoding detector
+charset-normalizer==3.4.2              # Character encoding normalizer (Requests dep)
+click==8.1.8                           # Composable command line interface toolkit
+colorama==0.4.6                        # Cross-platform colored terminal text
+coloredlogs==15.0.1                    # Colored terminal output for Python's logging module
+decorator==5.2.1                       # Simplifies writing custom decorators
+Deprecated==1.2.18                     # Decorator to deprecate python classes, functions, methods or parameters
+# dill for serializing more Python object types than pickle
+dill @ file:///home/conda/feedstock_root/build_artifacts/dill_1690101045195/work
+distro==1.9.0                          # OS platform information API
+docstring_parser==0.16                 # Parse Python docstrings
+durationpy==0.9                        # Library for parsing and converting duration strings
+exceptiongroup==1.2.2                  # Backport of PEP 654 (Exception Groups and except*)
+filelock==3.18.0                       # Platform-independent file lock
+fsspec==2025.3.2                       # Specification for Pythonic filesystems (used by Hugging Face, Pandas)
+humanfriendly==10.0                    # Human-readable text formatting
+idna==3.10                             # Internationalized Domain Names in Applications (IDNA) (Requests dep)
+importlib_metadata==8.6.1              # Read metadata from Python packages
+importlib_resources==6.5.2             # Read resources from Python packages
+json5==0.12.0                          # JSON5 serializer/deserializer
+json_repair==0.44.1                    # Repairs broken JSON strings
+jsonpickle==4.0.5                      # Python library for serializing Python objects to JSON
+jsonref==1.1.0                         # JSON References
+jsonschema==4.23.0                     # Implementation of JSON Schema for Python
+jsonschema-specifications==2025.4.1   # JSON Schema meta-schemas and test suites
+Markdown==3.8                          # Python implementation of John Gruber's Markdown
+markdown-it-py==3.0.0                  # Python port of markdown-it JS library
+mdurl==0.1.2                           # Markdown URL utilities (markdown-it-py dep)
+mmh3==5.1.0                            # MurmurHash3 non-cryptographic hash function
+more-itertools==10.7.0                 # More routines for operating on iterables, beyond itertools
+# multiprocess, a fork of multiprocessing
+multiprocess @ file:///D:/bld/multiprocess_1695459170632/work
+networkx==3.4.2                        # Python package for creation, manipulation, and study of complex networks
+overrides==7.7.0                       # Decorator to automatically check that a method overrides a method in a superclass
+packaging==25.0                        # Core utilities for Python packages
+parso==0.8.4                           # Python parser that supports error recovery (Jedi dep)
+pdfminer.six==20250327                 # PDF parser and analyzer
+pdfplumber==0.11.6                     # Plumb a PDF for detailed information about its layout and objects
+posthog==4.0.1                         # PostHog analytics library
+propcache==0.3.1                       # Property caching decorator
+protobuf==5.29.4                       # Protocol Buffers (used by ONNX, OpenTelemetry, etc.)
+pyasn1==0.6.1                          # ASN.1 library (RSA, google-auth dep)
+pyasn1_modules==0.4.2                  # Collection of ASN.1 modules (RSA, google-auth dep)
+# pybind11 for C++/Python interoperability
+pybind11 @ file:///D:/bld/pybind11-split_1730237329882/work
+pybind11_global @ file:///D:/bld/pybind11-split_1730237329882/work
+pycparser==2.22                        # C parser in Python (cffi dep)
+Pygments==2.19.1                       # Generic syntax highlighter (Rich, IPython dep)
+pyparsing==3.2.3                       # General parsing module
+pypdfium2==4.30.1                      # Python binding to PDFium
+PyPika==0.48.9                         # SQL query builder (used by ChromaDB) - Duplicated, listed under Data Handling
+pyreadline3==3.5.4                     # Python implementation of GNU readline for Windows
+# PySocks for SOCKS proxy support
+PySocks @ file:///D:/bld/pysocks_1733217287171/work
+python-dateutil==2.9.0.post0           # Extensions to the standard Python datetime module
+python-dotenv==1.1.0                   # Reads key-value pairs from a .env file and sets them as environment variables
+pytz==2025.2                           # World timezone definitions for Python (Pandas dep)
+pyvis==0.3.2                           # Library for network visualization
+# PyYAML for YAML parsing and emitting
+PyYAML @ file:///D:/bld/pyyaml_1695373629531/work
+referencing==0.36.2                    # JSON Schema $ref resolution (jsonschema dep)
+regex==2024.11.6                       # Alternative regular expression module, offering additional features
+reportlab==4.4.0                       # PDF generation library
+requests==2.32.3                       # Simple, elegant HTTP library
+rich==13.9.4                           # Library for rich text and beautiful formatting in the terminal
+rpds-py==0.24.0                        # Python bindings to Rust's persistent data structures (referencing dep)
+shellingham==1.5.4                     # Tool to Detect Surrounding Shell
+six==1.17.0                            # Python 2 and 3 compatibility utilities
+sounddevice==0.5.1                     # Play and Record Sound with Python
+soupsieve==2.7                         # CSS selector library for Beautiful Soup
+tenacity==9.1.2                        # General-purpose retrying library
+# tzdata for timezone information
+tzdata @ file:///home/conda/feedstock_root/build_artifacts/python-tzdata_1742745135198/work
+typer==0.15.3                          # Library for building CLIs based on Python type hints (similar to Click)
+typing-inspection==0.4.0               # Utilities for runtime type inspection
+typing_extensions==4.13.2              # Backported and experimental type hints
+urllib3==2.4.0                         # Powerful, user-friendly HTTP client for Python (Requests dep)
+uv==0.7.3                              # Extremely fast Python package installer and resolver, written in Rust
+watchfiles==1.0.5                      # Simple, modern file watching and code reload in Python (Uvicorn dep)
+wcwidth==0.2.13                        # Determines printable width of a Unicode character (prompt_toolkit dep)
+websocket-client==1.8.0                # WebSocket client for Python (Kubernetes dep)
+# win_inet_pton for Windows
+win_inet_pton @ file:///D:/bld/win_inet_pton_1733130564612/work
+wrapt==1.17.2                          # Module for decorators, wrappers and monkey patching
+# xxhash for fast hashing
+xxhash @ file:///D:/bld/python-xxhash_1740594804140/work
+zipp==3.21.0                           # Pathlib-compatible object wrapper for zip files (importlib_resources dep)
+zstandard==0.23.0                      # Zstandard compression library bindings for Python
+
+# -----------------------------------------------------------------------------
+# Development & Debugging Tools
+# Packages primarily used during development, debugging, and interactive sessions.
+# -----------------------------------------------------------------------------
+asttokens==3.0.0                       # Annotate AST trees with source code positions (IPython dep)
+executing==2.2.0                       # Get information about the currently executing code (IPython dep)
+ipython==8.36.0                        # Powerful interactive Python shell
+jedi==0.19.2                           # Autocompletion and static analysis library (IPython dep)
+prompt_toolkit==3.0.51                 # Library for building powerful interactive command lines (IPython dep)
+pure_eval==0.2.3                       # Safely evaluate AST nodes (IPython dep)
+stack-data==0.6.3                      # Extract data from stack frames and tracebacks (IPython dep)
+traitlets==5.14.3                      # Configuration system for Python applications (IPython dep)
+
+# -----------------------------------------------------------------------------
+# Build & Packaging
+# Tools related to building and packaging Python projects.
+# -----------------------------------------------------------------------------
+build==1.2.2.post1                     # Simple, correct PEP 517 package builder
+pyproject_hooks==1.2.0                 # Hooks for PEP 517 package builders
+tomli==2.2.1                           # TOML parser (for pyproject.toml)
+tomli_w==1.2.0                         # TOML writer
+
+# -----------------------------------------------------------------------------
+# Security & Authentication
+# Packages for handling security, encryption, and authentication.
+# -----------------------------------------------------------------------------
+auth0-python==4.9.0                    # Auth0 SDK for Python
+bcrypt==4.3.0                          # Modern password hashing for your software and your servers
+cryptography==44.0.3                   # Cryptographic recipes and primitives
+oauthlib==3.2.2                        # Generic, spec-compliant, thorough implementation of OAuth for Python
+PyJWT==2.10.1                          # JSON Web Token implementation in Python (Auth0 dep)
+requests-oauthlib==2.0.0               # OAuthlib authentication support for Requests
+rsa==4.9.1                             # Pure-Python RSA implementation (google-auth dep)
+
+# -----------------------------------------------------------------------------
+# Cloud, Distributed Systems & Monitoring
+# Packages for interacting with cloud services, distributed systems, and monitoring.
+# -----------------------------------------------------------------------------
+cachetools==5.5.2                      # Extensible memoizing collections and decorators (google-auth dep)
+google-auth==2.40.1                    # Google Authentication Library
+googleapis-common-protos==1.70.0       # Common protobufs used by Google APIs
+grpcio==1.71.0                         # HTTP/2 based RPC framework (used by google-auth, OpenTelemetry)
+kubernetes==32.0.1                     # Kubernetes Python client
+opentelemetry-api==1.32.1              # OpenTelemetry API
+opentelemetry-exporter-otlp-proto-common==1.32.1 # OpenTelemetry OTLP common proto
+opentelemetry-exporter-otlp-proto-grpc==1.32.1 # OpenTelemetry OTLP gRPC exporter
+opentelemetry-exporter-otlp-proto-http==1.32.1 # OpenTelemetry OTLP HTTP exporter
+opentelemetry-instrumentation==0.53b1  # OpenTelemetry instrumentation
+opentelemetry-instrumentation-asgi==0.53b1 # OpenTelemetry ASGI instrumentation
+opentelemetry-instrumentation-fastapi==0.53b1 # OpenTelemetry FastAPI instrumentation
+opentelemetry-proto==1.32.1            # OpenTelemetry communication protocols
+opentelemetry-sdk==1.32.1              # OpenTelemetry SDK
+opentelemetry-semantic-conventions==0.53b1 # OpenTelemetry semantic conventions
+opentelemetry-util-http==0.53b1        # OpenTelemetry HTTP utilities
+
+# End of requirements.txt

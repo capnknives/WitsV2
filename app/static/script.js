@@ -71,6 +71,25 @@ document.addEventListener('DOMContentLoaded', () => {
     /** @type {NodeListOf<HTMLDivElement>} */
     const tabContents = document.querySelectorAll('.tab-content');
 
+    // Book Project Management Elements
+    /** @type {HTMLSelectElement} */
+    const bookProjectSelect = document.getElementById('book-project-select');
+    /** @type {HTMLButtonElement} */
+    const loadBookProjectBtn = document.getElementById('load-book-project-btn');
+    /** @type {HTMLInputElement} */
+    const newBookProjectNameInput = document.getElementById('new-book-project-name');
+    /** @type {HTMLButtonElement} */
+    const createBookProjectBtn = document.getElementById('create-book-project-btn');
+    /** @type {HTMLDivElement} */
+    const currentBookProjectDisplay = document.getElementById('current-book-project-display');
+
+    // Story Dashboard Elements
+    /** @type {HTMLButtonElement} */
+    const saveStoryDashboardChangesBtn = document.getElementById('save-story-dashboard-changes-btn');
+    /** @type {HTMLDivElement} */
+    const storyDashboardContent = document.getElementById('story-dashboard-content');
+
+
     // Session State
     /** @type {string} */
     let currentSessionId = '';
@@ -80,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     initializeUIStates();
     fetchInitialData();
+    fetchBookProjects(); // Fetch book projects on initial load
 
     /**
      * Generates a unique session ID.
@@ -186,6 +206,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (fileUpload) { // If only fileUpload exists and is directly interacted with
             fileUpload.addEventListener('change', handleFileUpload);
         }
+
+        // Book Project Listeners
+        if (loadBookProjectBtn) loadBookProjectBtn.addEventListener('click', handleLoadBookProject);
+        if (createBookProjectBtn) createBookProjectBtn.addEventListener('click', handleCreateBookProject);
+        if (bookProjectSelect) bookProjectSelect.addEventListener('change', handleBookProjectSelectionChange);
+
+        // Story Dashboard Listeners
+        if (saveStoryDashboardChangesBtn) saveStoryDashboardChangesBtn.addEventListener('click', handleSaveStoryDashboardChanges);
+
 
         setupTabNavigation();
     }
@@ -473,6 +502,583 @@ document.addEventListener('DOMContentLoaded', () => {
             displayGlobalError(`Error updating LLM parameters: ${error.message}`);
         }
     }
+
+    // --- Book Project Management ---
+
+    /**
+     * Fetches the list of book projects from the backend and populates the dropdown.
+     */
+    async function fetchBookProjects() {
+        if (!bookProjectSelect) return;
+        try {
+            const response = await fetch('/api/book_projects');
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to fetch book projects' }));
+                throw new Error(errData.detail || `HTTP error! status: ${response.status}`);
+            }
+            const projects = await response.json();
+            
+            bookProjectSelect.innerHTML = '<option value="">-- Select a Project --</option>'; // Default empty option
+            if (projects && projects.length > 0) {
+                projects.forEach(project => {
+                    const option = document.createElement('option');
+                    option.value = project.project_name;
+                    option.textContent = project.project_name;
+                    bookProjectSelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.textContent = 'No projects found';
+                option.disabled = true;
+                bookProjectSelect.appendChild(option);
+            }
+            // Attempt to load last selected project for this session, or clear display
+            const lastSelectedProject = localStorage.getItem(`selectedBookProject_${currentSessionId}`);
+            if (lastSelectedProject && projects.some(p => p.project_name === lastSelectedProject)) {
+                bookProjectSelect.value = lastSelectedProject;
+                await loadBookProject(lastSelectedProject, false); // Load without explicit user click
+            } else {
+                updateCurrentBookProjectDisplay(null);
+                initializeStoryDashboard(null); // Clear dashboard if no project loaded
+            }
+
+        } catch (error) {
+            console.error('Error fetching book projects:', error);
+            displayGlobalError(`Failed to load book projects: ${error.message}`);
+            if (bookProjectSelect) {
+                 bookProjectSelect.innerHTML = '<option value="">Error loading projects</option>';
+            }
+            updateCurrentBookProjectDisplay(null);
+            initializeStoryDashboard(null);
+        }
+    }
+
+    /**
+     * Handles the change event of the book project selection dropdown.
+     * (Currently, loading is handled by the "Load" button, but this could pre-fill info or enable the button)
+     */
+    function handleBookProjectSelectionChange() {
+        if (!bookProjectSelect || !loadBookProjectBtn) return;
+        if (bookProjectSelect.value) {
+            loadBookProjectBtn.disabled = false;
+            // Optionally, you could display some brief info about the selected project here
+            // or automatically load it if desired. For now, we wait for the "Load" button.
+        } else {
+            loadBookProjectBtn.disabled = true;
+        }
+    }
+    
+    /**
+     * Handles the click event for the "Load Book Project" button.
+     */
+    async function handleLoadBookProject() {
+        if (!bookProjectSelect || !bookProjectSelect.value) {
+            displayGlobalError('Please select a book project to load.');
+            return;
+        }
+        const projectName = bookProjectSelect.value;
+        await loadBookProject(projectName, true);
+    }
+
+    /**
+     * Loads a specific book project by its name.
+     * @param {string} projectName - The name of the project to load.
+     * @param {boolean} isExplicitLoad - True if triggered by direct user action (e.g., clicking "Load").
+     */
+    async function loadBookProject(projectName, isExplicitLoad = true) {
+        if (!projectName) return;
+
+        if (loadingIndicator) loadingIndicator.style.display = 'flex';
+        addMessageToLog({ type: 'info', content: `Loading book project: ${projectName}...` }, thinkingProcessDiv);
+
+        try {
+            const response = await fetch(`/api/book_projects/${encodeURIComponent(projectName)}`);
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to load project details' }));
+                throw new Error(errData.detail || `HTTP error! status: ${response.status}`);
+            }
+            const projectData = await response.json();
+            
+            updateCurrentBookProjectDisplay(projectData);
+            initializeStoryDashboard(projectData); // Populate dashboard with loaded data
+            localStorage.setItem(`selectedBookProject_${currentSessionId}`, projectName);
+
+            if (isExplicitLoad) {
+                addMessageToLog({ type: 'info', content: `Book project \'${projectName}\' loaded successfully.` }, thinkingProcessDiv);
+            }
+
+        } catch (error) {
+            console.error(`Error loading book project \'${projectName}\':`, error);
+            displayGlobalError(`Failed to load book project \'${projectName}\': ${error.message}`);
+            updateCurrentBookProjectDisplay(null); // Clear display on error
+            initializeStoryDashboard(null); // Clear dashboard on error
+        } finally {
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+        }
+    }
+
+
+    /**
+     * Handles the click event for the "Create New Book Project" button.
+     */
+    async function handleCreateBookProject() {
+        if (!newBookProjectNameInput) return;
+        const projectName = newBookProjectNameInput.value.trim();
+        if (!projectName) {
+            displayGlobalError('Please enter a name for the new book project.');
+            return;
+        }
+
+        if (loadingIndicator) loadingIndicator.style.display = 'flex';
+        addMessageToLog({ type: 'info', content: `Creating new book project: ${projectName}...` }, thinkingProcessDiv);
+
+        try {
+            const response = await fetch('/api/book_projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_name: projectName })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to create project' }));
+                throw new Error(errData.detail || `HTTP error! status: ${response.status}`);
+            }
+            const newProject = await response.json();
+            
+            addMessageToLog({ type: 'info', content: `Book project \'${newProject.project_name}\' created successfully.` }, thinkingProcessDiv);
+            newBookProjectNameInput.value = ''; // Clear input
+            await fetchBookProjects(); // Refresh project list
+            
+            // Automatically select and load the new project
+            if (bookProjectSelect) {
+                bookProjectSelect.value = newProject.project_name;
+                await loadBookProject(newProject.project_name, false); // Load without explicit user click message
+            }
+
+        } catch (error) {
+            console.error('Error creating book project:', error);
+            displayGlobalError(`Failed to create book project: ${error.message}`);
+        } finally {
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+        }
+    }
+
+    /**
+     * Updates the display area for the currently loaded book project.
+     * @param {object | null} projectData - The project data object, or null if no project is loaded.
+     */
+    function updateCurrentBookProjectDisplay(projectData) {
+        if (!currentBookProjectDisplay) return;
+        if (projectData && projectData.project_name) {
+            currentBookProjectDisplay.innerHTML = `
+                <p><strong>Current Project:</strong> ${escapeHtml(projectData.project_name)}</p>
+                <p><small>Last Modified: ${projectData.last_modified ? new Date(projectData.last_modified).toLocaleString() : 'N/A'}</small></p>
+            `;
+            // If you have a specific "Story Dashboard" tab button, you might enable it here.
+            const storyDashboardTabButton = document.querySelector('.tab[data-tab="story-dashboard"]');
+            if (storyDashboardTabButton) storyDashboardTabButton.disabled = false;
+            if (saveStoryDashboardChangesBtn) saveStoryDashboardChangesBtn.style.display = 'inline-block';
+
+        } else {
+            currentBookProjectDisplay.innerHTML = '<p><em>No book project loaded. Select or create one.</em></p>';
+            const storyDashboardTabButton = document.querySelector('.tab[data-tab="story-dashboard"]');
+            if (storyDashboardTabButton) storyDashboardTabButton.disabled = true;
+            if (saveStoryDashboardChangesBtn) saveStoryDashboardChangesBtn.style.display = 'none';
+        }
+    }
+
+
+    // --- Story Dashboard Management ---
+
+    /**
+     * Initializes the Story Dashboard with data from the loaded project.
+     * @param {object | null} projectData - The full BookWritingState object, or null.
+     */
+    function initializeStoryDashboard(projectData) {
+        if (!storyDashboardContent) return;
+        storyDashboardContent.innerHTML = ''; // Clear previous content
+
+        const storyDashboardTabButton = document.querySelector('.tab[data-tab="story-dashboard"]');
+
+        if (!projectData || !projectData.project_name) {
+            storyDashboardContent.innerHTML = '<p class="empty-state-text">Load a book project to view and edit its details here.</p>';
+            if (saveStoryDashboardChangesBtn) saveStoryDashboardChangesBtn.style.display = 'none';
+            if (storyDashboardTabButton) storyDashboardTabButton.disabled = true; // Disable tab if no project
+            return;
+        }
+        
+        if (storyDashboardTabButton) storyDashboardTabButton.disabled = false; // Enable tab if project loaded
+        if (saveStoryDashboardChangesBtn) saveStoryDashboardChangesBtn.style.display = 'inline-block';
+
+
+        // Create tabs within the dashboard
+        const dashboardTabsContainer = document.createElement('div');
+        dashboardTabsContainer.className = 'story-dashboard-tabs';
+        
+        const dashboardTabContentsContainer = document.createElement('div');
+        dashboardTabContentsContainer.className = 'story-dashboard-tab-contents';
+
+        storyDashboardContent.appendChild(dashboardTabsContainer);
+        storyDashboardContent.appendChild(dashboardTabContentsContainer);
+
+        // Define dashboard sections (tabs)
+        const sections = [
+            { id: 'premise', title: 'Premise & Logline', data: projectData.premise_logline || {} },
+            { id: 'plot_structure', title: 'Plot Structure', data: projectData.plot_structure || {} },
+            { id: 'characters', title: 'Characters', data: projectData.characters || [] },
+            { id: 'world_building', title: 'World Building', data: projectData.world_building || {} },
+            { id: 'themes', title: 'Themes & Motifs', data: projectData.themes_motifs || {} },
+            { id: 'narrative_style', title: 'Narrative Style', data: projectData.narrative_style_tone || {} },
+            { id: 'outline', title: 'Scene Outline', data: projectData.scene_by_scene_outline || [] },
+            { id: 'research', title: 'Research Notes', data: projectData.research_notes || [] }
+        ];
+
+        sections.forEach((section, index) => {
+            const tabButton = document.createElement('button');
+            tabButton.className = 'story-dashboard-tab-button';
+            tabButton.textContent = section.title;
+            tabButton.dataset.tabFor = section.id;
+            if (index === 0) tabButton.classList.add('active');
+            dashboardTabsContainer.appendChild(tabButton);
+
+            const tabContentDiv = document.createElement('div');
+            tabContentDiv.className = 'story-dashboard-tab-content';
+            tabContentDiv.id = `dashboard-content-${section.id}`;
+            if (index !== 0) tabContentDiv.style.display = 'none';
+            
+            // Populate content for each tab (basic for now, will be enhanced)
+            tabContentDiv.appendChild(createEditableSection(section.id, section.title, section.data));
+            dashboardTabContentsContainer.appendChild(tabContentDiv);
+
+            tabButton.addEventListener('click', () => {
+                dashboardTabsContainer.querySelectorAll('.story-dashboard-tab-button').forEach(btn => btn.classList.remove('active'));
+                tabButton.classList.add('active');
+                dashboardTabContentsContainer.querySelectorAll('.story-dashboard-tab-content').forEach(content => content.style.display = 'none');
+                document.getElementById(`dashboard-content-${section.id}`).style.display = 'block';
+            });
+        });
+    }
+
+    /**
+     * Creates an editable section for the story dashboard.
+     * This is a placeholder and will need significant enhancement for rich editing.
+     * @param {string} sectionId - The ID of the section (e.g., 'premise', 'characters').
+     * @param {string} title - The title of the section.
+     * @param {object|Array} data - The data for this section.
+     * @returns {HTMLElement} The created section element.
+     */
+    function createEditableSection(sectionId, title, data) {
+        const sectionDiv = document.createElement('div');
+        sectionDiv.className = 'dashboard-section';
+        sectionDiv.id = `section-${sectionId}`;
+
+        const heading = document.createElement('h4');
+        heading.textContent = title;
+        sectionDiv.appendChild(heading);
+
+        if (Array.isArray(data)) {
+            if (data.length === 0) {
+                sectionDiv.innerHTML += '<p><em>No data yet.</em></p>';
+            }
+            data.forEach((item, index) => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'dashboard-array-item';
+                // For arrays, we might want a more structured approach, e.g., for characters
+                if (typeof item === 'object') {
+                    Object.entries(item).forEach(([key, value]) => {
+                        itemDiv.appendChild(createEditableField(sectionId, key, value, index));
+                    });
+                } else { // Simple array of strings/numbers
+                     itemDiv.appendChild(createEditableField(sectionId, `item_${index}`, item, index, true));
+                }
+                sectionDiv.appendChild(itemDiv);
+            });
+            // Add button to add new items to array (e.g. new character, new scene)
+            const addItemButton = document.createElement('button');
+            addItemButton.textContent = `Add New ${title.slice(0,-1)}`; // e.g. "Add New Character"
+            addItemButton.className = 'add-dashboard-item-btn';
+            addItemButton.dataset.sectionId = sectionId;
+            addItemButton.addEventListener('click', () => handleAddDashboardItem(sectionId, data));
+            sectionDiv.appendChild(addItemButton);
+
+        } else if (typeof data === 'object' && data !== null) {
+            if (Object.keys(data).length === 0) {
+                 sectionDiv.innerHTML += '<p><em>No data yet.</em></p>';
+            }
+            Object.entries(data).forEach(([key, value]) => {
+                sectionDiv.appendChild(createEditableField(sectionId, key, value));
+            });
+        } else if (data) { // Simple string or number for a top-level field (less common for sections)
+            sectionDiv.appendChild(createEditableField(sectionId, 'value', data));
+        } else {
+            sectionDiv.innerHTML += '<p><em>No data yet.</em></p>';
+        }
+        return sectionDiv;
+    }
+
+    /**
+     * Creates an individual editable field (label + textarea/input).
+     * @param {string} sectionId - The ID of the parent section.
+     * @param {string} key - The key/name of the field.
+     * @param {any} value - The current value of the field.
+     * @param {number} [index=-1] - Optional index if the field is part of an array.
+     * @param {boolean} [isArrayItemPrimitive=false] - True if the item is a primitive in an array (not an object property).
+     * @returns {HTMLElement} The created field element.
+     */
+    function createEditableField(sectionId, key, value, index = -1, isArrayItemPrimitive = false) {
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'editable-field';
+
+        const label = document.createElement('label');
+        label.textContent = isArrayItemPrimitive ? `Item ${index + 1}:` : `${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:`;
+        const inputId = `field-${sectionId}-${key}${index !== -1 ? '-' + index : ''}`;
+        label.htmlFor = inputId;
+        
+        const textarea = document.createElement('textarea');
+        textarea.id = inputId;
+        textarea.value = typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '');
+        textarea.dataset.sectionId = sectionId;
+        textarea.dataset.key = key;
+        if (index !== -1) textarea.dataset.index = index;
+        if (isArrayItemPrimitive) textarea.dataset.isArrayItemPrimitive = 'true';
+        
+        // Auto-resize textarea
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+        // Trigger resize on initial load
+        setTimeout(() => {
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight) + 'px';
+        }, 0);
+
+
+        fieldDiv.appendChild(label);
+        fieldDiv.appendChild(textarea);
+        return fieldDiv;
+    }
+    
+    /**
+     * Handles adding a new item to an array section in the dashboard (e.g., new character, new scene).
+     * @param {string} sectionId - The ID of the section (e.g., 'characters', 'scene_by_scene_outline').
+     * @param {Array} currentArrayData - The current array data for that section.
+     */
+    function handleAddDashboardItem(sectionId, currentArrayData) {
+        // For now, just add a generic new object or string.
+        // This would need to be more sophisticated based on the section type.
+        let newItem;
+        if (sectionId === 'characters') {
+            newItem = { name: 'New Character', description: '' };
+        } else if (sectionId === 'scene_by_scene_outline') {
+            newItem = { scene_number: currentArrayData.length + 1, summary: 'New Scene Summary', content_ideas: '' };
+        } else if (sectionId === 'research_notes') {
+            newItem = { topic: 'New Topic', notes: '' };
+        } else {
+            newItem = 'New Item'; // Fallback for generic arrays
+        }
+        
+        currentArrayData.push(newItem); // This mutates the array held by the projectData in memory
+
+        // Re-render the specific section to include the new item
+        // This is a bit crude; a more refined approach would be to append just the new item's HTML.
+        const projectData = getCurrentProjectDataFromUI(); // Or retrieve from a stored global variable
+        if (projectData) {
+            const sectionConfig = [
+                { id: 'premise', title: 'Premise & Logline', data: projectData.premise_logline || {} },
+                { id: 'plot_structure', title: 'Plot Structure', data: projectData.plot_structure || {} },
+                { id: 'characters', title: 'Characters', data: projectData.characters || [] },
+                { id: 'world_building', title: 'World Building', data: projectData.world_building || {} },
+                { id: 'themes', title: 'Themes & Motifs', data: projectData.themes_motifs || {} },
+                { id: 'narrative_style', title: 'Narrative Style', data: projectData.narrative_style_tone || {} },
+                { id: 'outline', title: 'Scene Outline', data: projectData.scene_by_scene_outline || [] },
+                { id: 'research', title: 'Research Notes', data: projectData.research_notes || [] }
+            ].find(s => s.id === sectionId);
+
+            if (sectionConfig) {
+                const sectionContentDiv = document.getElementById(`dashboard-content-${sectionId}`);
+                if (sectionContentDiv) {
+                    sectionContentDiv.innerHTML = ''; // Clear old content
+                    sectionContentDiv.appendChild(createEditableSection(sectionConfig.id, sectionConfig.title, sectionConfig.data));
+                }
+            }
+        }
+        addMessageToLog({type: 'info', content: `Added new item to ${sectionId}. Remember to save project changes.`}, thinkingProcessDiv);
+    }
+
+
+    /**
+     * Gathers the current data from the Story Dashboard UI fields.
+     * @returns {object | null} The updated BookWritingState object, or null if no project loaded.
+     */
+    function getCurrentProjectDataFromUI() {
+        if (!bookProjectSelect || !bookProjectSelect.value) return null;
+        const currentProjectName = bookProjectSelect.value;
+        
+        // This is a simplified representation. In a real scenario, you'd fetch the
+        // original loaded project data and update it, or build it from scratch if it's complex.
+        // For now, we assume a global `loadedBookProjectData` might exist or we reconstruct.
+        // Let's try to reconstruct based on the fields.
+
+        const projectData = {
+            project_name: currentProjectName,
+            // Initialize all possible fields from BookWritingState schema to ensure they exist
+            premise_logline: {},
+            plot_structure: {},
+            characters: [],
+            world_building: {},
+            themes_motifs: {},
+            narrative_style_tone: {},
+            scene_by_scene_outline: [],
+            research_notes: [],
+            target_audience: '',
+            manuscript_content: {}, // Assuming this might be complex, handle as needed
+            revision_history: [],
+            generation_log: [],
+            last_modified: new Date().toISOString()
+        };
+
+        document.querySelectorAll('.dashboard-section textarea').forEach(textarea => {
+            const sectionId = textarea.dataset.sectionId;
+            const key = textarea.dataset.key;
+            const index = textarea.dataset.index ? parseInt(textarea.dataset.index) : -1;
+            const isArrayItemPrimitive = textarea.dataset.isArrayItemPrimitive === 'true';
+            let value = textarea.value;
+
+            try {
+                // Attempt to parse if it looks like JSON (e.g., for object fields stored in textarea)
+                if (value.trim().startsWith('{') || value.trim().startsWith('[')) {
+                    value = JSON.parse(value);
+                }
+            } catch (e) { /* Ignore parse error, keep as string */ }
+
+
+            if (projectData.hasOwnProperty(sectionId)) { // Top-level sections like premise_logline, etc.
+                const sectionObject = projectData[sectionId];
+                if (Array.isArray(sectionObject)) {
+                    if (index !== -1) {
+                        if (!sectionObject[index]) sectionObject[index] = isArrayItemPrimitive ? null : {};
+                        
+                        if (isArrayItemPrimitive) {
+                            sectionObject[index] = value;
+                        } else if (typeof sectionObject[index] === 'object' && sectionObject[index] !== null) {
+                            sectionObject[index][key] = value;
+                        } else { // If it was unexpectedly not an object (e.g. array of strings was expected but now it's complex)
+                            sectionObject[index] = { [key]: value };
+                        }
+                    } else {
+                        // This case (array section but no index on textarea) should ideally not happen with current createEditableField
+                        console.warn('Array section item without index:', sectionId, key);
+                    }
+                } else if (typeof sectionObject === 'object' && sectionObject !== null) {
+                    sectionObject[key] = value;
+                }
+            } else {
+                 // This case implies a direct property on projectData, less common for dashboard structure
+                 // For example, if a section was just a single textarea for projectData.target_audience
+                 if (projectData.hasOwnProperty(key)) { // Check if key is a direct property of projectData
+                    projectData[key] = value;
+                 } else {
+                    console.warn('Unknown section or key in dashboard data gathering:', sectionId, key);
+                 }
+            }
+        });
+        return projectData;
+    }
+
+    /**
+     * Handles saving changes made in the Story Dashboard.
+     */
+    async function handleSaveStoryDashboardChanges() {
+        if (!bookProjectSelect || !bookProjectSelect.value) {
+            displayGlobalError('No book project is currently loaded to save changes to.');
+            return;
+        }
+        const projectName = bookProjectSelect.value;
+        const updatedProjectData = getCurrentProjectDataFromUI();
+
+        if (!updatedProjectData) {
+            displayGlobalError('Could not gather data from the dashboard to save.');
+            return;
+        }
+        
+        // Ensure last_modified is updated
+        updatedProjectData.last_modified = new Date().toISOString();
+
+        if (loadingIndicator) loadingIndicator.style.display = 'flex';
+        addMessageToLog({ type: 'info', content: `Saving changes for project: ${projectName}...` }, thinkingProcessDiv);
+
+        try {
+            const response = await fetch(`/api/book_projects/${encodeURIComponent(projectName)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedProjectData)
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ detail: 'Failed to save project changes' }));
+                throw new Error(errData.detail || `HTTP error! status: ${response.status}`);
+            }
+            const savedData = await response.json();
+            
+            addMessageToLog({ type: 'info', content: `Project \'${savedData.project_name}\' saved successfully.` }, thinkingProcessDiv);
+            updateCurrentBookProjectDisplay(savedData); // Update last modified time, etc.
+            // Optionally, re-initialize dashboard if save returns modified data, though usually not needed if UI reflects changes.
+            // initializeStoryDashboard(savedData); 
+
+        } catch (error) {
+            console.error(`Error saving project \'${projectName}\':`, error);
+            displayGlobalError(`Failed to save project \'${projectName}\': ${error.message}`);
+        } finally {
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+        }
+    }
+
+    // --- Targeted AI Generation from UI (Placeholder) ---
+    /**
+     * Gathers context from a specific part of the Story Dashboard and sends it for AI processing.
+     * @param {string} sectionId - The ID of the dashboard section (e.g., 'premise', 'characters').
+     * @param {string} fieldKey - The specific field within the section to focus on.
+     * @param {string} generationGoal - The specific goal for the AI (e.g., "expand on this character's backstory").
+     */
+    async function triggerTargetedAIGeneration(sectionId, fieldKey, generationGoal) {
+        const currentProjectData = getCurrentProjectDataFromUI();
+        if (!currentProjectData) {
+            displayGlobalError('No project loaded. Cannot perform targeted AI generation.');
+            return;
+        }
+
+        let context = '';
+        // Extract relevant context from currentProjectData based on sectionId and fieldKey
+        // This needs to be more intelligently built based on what the AI needs.
+        // For example, for a character, you might send the whole character object.
+        // For a plot point, you might send the plot point and surrounding plot points.
+
+        if (currentProjectData[sectionId]) {
+            if (fieldKey && currentProjectData[sectionId][fieldKey]) {
+                context = `Focusing on ${fieldKey} in ${sectionId}: ${JSON.stringify(currentProjectData[sectionId][fieldKey], null, 2)}\n\n`;
+            } else {
+                context = `Focusing on section ${sectionId}: ${JSON.stringify(currentProjectData[sectionId], null, 2)}\n\n`;
+            }
+        }
+        
+        const fullGoal = `Project Context: ${JSON.stringify(currentProjectData, null, 2)}\n\nSpecific Task Context: ${context}\nUser Goal: ${generationGoal}`;
+
+        // For now, just log it. Later, this will call sendGoal or a similar function
+        // with a specific agent or instruction.
+        console.log("Targeted AI Generation Request:", { sectionId, fieldKey, generationGoal, fullGoal });
+        addMessageToLog({type: 'info', content: `Preparing to generate for ${fieldKey || sectionId} with goal: "${generationGoal}"`}, thinkingProcessDiv);
+        
+        // Example of how it might be sent (you'll need to adapt sendGoal or create a new function)
+        // This assumes the OrchestratorAgent can handle such a detailed request.
+        // You might need a dedicated agent or a more structured input for the orchestrator.
+        
+        // Simulate sending this as a new "goal"
+        if (goalInput) goalInput.value = fullGoal; // Put it in the main input for now
+        // sendGoal(); // Then call sendGoal, or a specialized version.
+        displayGlobalError("Targeted AI generation is conceptual. Full request logged to console. You would typically send this to an AI agent.", true);
+    }
+
 
     // --- Chat & Goal Submission ---
     /**

@@ -1,0 +1,175 @@
+In this repository, we're building WITS-NEXUS v2, an advanced modular AI system designed for complex task orchestration and intelligent decision-making.
+
+COMMENTING STYLE:
+- I love to add personality to my comments using late 90s to 2007-era emoticons & expressions
+- Examples: "lol", "xD", "Oops XD!", "Noone saw that >.>", "x.x", "^_^", "O.o", "=D"
+- I sometimes use self-deprecating humor in comments when something's complicated
+- I'll occasionally add "// TODO: Fix this later, I swear! >.>"
+- For confusing or hacky code: "// Don't judge me, this works somehow XD"
+- When proud of a clever solution: "// Check this out! Elegant AF =D"
+- For warnings: "// Careful! This might explode if you're not careful x.x"
+- For temporary fixes: "// Band-aid solution for now... sorry future me lol"
+
+CORE ARCHITECTURE:
+- Hierarchical agents: WitsControlCenterAgent (WCCA) parses user input, OrchestratorAgent handles ReAct planning loops, and specialized agents perform domain-specific tasks
+- Memory management with GPU-accelerated FAISS for vector search
+- Extensible tool system with Pydantic schema validation
+- FastAPI web application with real-time streaming
+
+TECH REQUIREMENTS:
+- Python 3.10.x SPECIFICALLY (required for FAISS-GPU compatibility)
+- CUDA 11.8 (for FAISS-GPU 1.7.4)
+- numpy==1.24.3 (specific version required)
+
+CODE STRUCTURE:
+- /agents: Agent implementations
+- /core: System components (config, memory, schemas)
+- /tools: Tool implementations
+- /app: FastAPI web application
+
+CODING CONVENTIONS:
+- 4 spaces for indentation, 120 character line length
+- Type hints are required on all functions
+- Classes use PascalCase, methods/variables use snake_case
+- Private methods/attributes prefixed with underscore
+- Pydantic models for data validation
+- Async/await for I/O operations
+- Always include docstrings in Google style
+
+COMMON PATTERNS:
+
+1. Agent Definition:
+```python
+class SpecializedAgent(BaseAgent):
+    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any):
+        super().__init__(agent_name, config, llm_interface, memory_manager)
+        self.logger = logging.getLogger(f"WITS.Agents.{agent_name}")  # Gotta have those logs ^_^
+    
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> str:
+        self.logger.info(f"Running task: {task_description}")  # Let's see what we're doing today!
+        # Agent-specific logic here - this is where the magic happens =D
+        return result  # Hope this works lol
+```
+
+2. Tool Definition:
+```python
+class ExampleToolArgs(BaseModel):  # All the stuff we need to make this tool go brrrr
+    param1: str = Field(..., description="Description of parameter 1")
+    param2: int = Field(5, description="Description of parameter 2 with default")  # Default value ftw!
+
+class ExampleToolResponse(BaseModel):  # What we're sending back, fingers crossed XD
+    result: Any = Field(..., description="The result of the tool execution")
+    error: Optional[str] = Field(None, description="Error message if execution failed")  # For when things go boom x.x
+
+class ExampleTool(BaseTool):
+    name: ClassVar[str] = "example_tool"  # This is our identity crisis averted lol
+    description: ClassVar[str] = "Description of what this tool does"  # Help the LLM understand what we do ^_^
+    args_schema: ClassVar[Type[BaseModel]] = ExampleToolArgs
+    
+    async def execute(self, args: ExampleToolArgs) -> ExampleToolResponse:
+        try:
+            # Tool logic here - let's hope I didn't mess this up >.>
+            return ExampleToolResponse(result=result)
+        except Exception as e:
+            return ExampleToolResponse(result=None, error=str(e))  # Oops, something went wrong XD
+```
+
+3. Memory Operations:
+```python
+# Adding memory - don't forget or it'll be lost forever! O.o
+memory_segment = MemorySegment(
+    type="AGENT_ACTION",
+    source=self.agent_name,
+    content=MemorySegmentContent(text=content_text, tool_name=tool_name, tool_args=tool_args),
+    metadata={"session_id": session_id, "timestamp": time.time()} # Important metadata! Don't be lazy lol
+)
+await self.memory.add_memory_segment(memory_segment)
+
+# Searching memory - where did I put that thing...? >.>
+results = await self.memory.search_memory(query=query_text, k=5)
+```
+
+4. StreamData for agent communication:
+```python
+yield StreamData(
+    type="info",
+    content=f"Delegating to {agent_name} with goal: {goal}", # Let everyone know what we're doing ^_^
+    tool_name=agent_name,
+    tool_args={"goal": goal},
+    iteration=context.get("iteration") # Very important! Don't forget this or things break XD
+)
+```
+
+5. Book Writing State Management:
+```python
+if "detailed_chapter_outlines" in agent_output_data:
+    new_outlines_data = agent_output_data["detailed_chapter_outlines"]
+    if isinstance(new_outlines_data, list):
+        self.book_writing_state.detailed_chapter_outlines = [
+            ChapterOutlineSchema(**outline_data) for outline_data in new_outlines_data
+        ]
+        updated_state_field = True
+```
+
+6. ReAct Loop Pattern:
+```python
+for i in range(self.max_iterations):
+    # Reason - let the LLM think ^_^
+    llm_response = await self.llm.chat_completion_async(model_name=model, messages=[{"role": "user", "content": prompt}])
+    parsed_response = self._parse_llm_response(llm_response)
+    
+    # Act - time to do the thing! =D
+    if parsed_response.chosen_action.action_type == "tool_call":
+        # Let's call this fancy tool and hope it works XD
+        tool_result = await self._execute_tool(parsed_response.chosen_action.tool_call)
+    elif parsed_response.chosen_action.action_type == "final_answer":
+        # We're done! Woot! \o/
+        return parsed_response.chosen_action.final_answer
+        
+    # Observe - what did we break this time? >.>
+    observation = tool_result
+    previous_steps.append({"thought": current_thought, "action": current_action, "observation": observation})
+```
+
+7. Error Handling:
+```python
+try:
+    result = await function()
+    return result
+except Exception as e:
+    # Oops! Something broke x.x
+    self.logger.error(f"Error in {self.agent_name}: {str(e)}", exc_info=True)
+    error_content = MemorySegmentContent(text=f"Error: {str(e)}")
+    await self.memory.add_memory_segment(MemorySegment(
+        type="ERROR",
+        source=self.agent_name,
+        content=error_content,
+        metadata={"session_id": session_id, "timestamp": time.time()} # Don't forget the timestamp! lol
+    ))
+    return StreamData(type="error", content=f"Error: {str(e)}", error_details=str(e))
+```
+
+8. GPU Operation:
+```python
+# Check GPU availability - please work, I don't want to debug CUDA again x.x
+if not torch.cuda.is_available() or not hasattr(faiss, 'StandardGpuResources'):
+    raise RuntimeError("CUDA or FAISS-GPU support is not available")
+
+# Initialize GPU resources - VROOM VROOM! =D
+res = faiss.StandardGpuResources()
+res.setTempMemory(1024 * 1024 * 1024)  # 1GB GPU memory, should be enough... I hope >.>
+
+# Create GPU index - this is where the magic happens ^_^
+cpu_index = faiss.IndexFlatL2(dimension)
+gpu_index = faiss.index_cpu_to_gpu(res, device_id, cpu_index)
+```
+
+IMPORTANT NOTES:
+- Always use `await self.memory.add_memory_segment()` for important operations to ensure continuity
+- Format user-facing text nicely with proper spacing and line breaks
+- Include session_id in all memory segment metadata
+- Use type hints and async/await consistently
+- The OrchestratorAgent expects JSON responses from the LLM in a specific format
+- Book writing specialized agents operate on specific sections of BookWritingState
+- Use log_async_execution_time decorator for performance tracking
+- NEVER mix FAISS-CPU and FAISS-GPU in the same environment (learned this the hard way LOL)
