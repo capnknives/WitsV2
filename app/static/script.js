@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendGoalBtn = document.getElementById('send-goal-btn');
     const conversationDiv = document.getElementById('conversation');
     const thinkingProcessDiv = document.getElementById('thinking-process');
+    const loadingIndicator = document.getElementById('loading-indicator'); // Added loading indicator element
 
     const sessionIdInput = document.getElementById('session-id-input');
     const newSessionBtn = document.getElementById('new-session-btn');
@@ -222,20 +223,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Chat Functionality ---
     sendGoalBtn.addEventListener('click', sendGoal);
     goalInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendGoal();
+        // Allow Shift+Enter for new line, Enter to send
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // Prevent default Enter behavior (new line in textarea)
+            sendGoal();
+        }
+    });
+
+    // Auto-resize textarea
+    goalInput.addEventListener('input', () => {
+        goalInput.style.height = 'auto'; // Reset height to shrink if text is deleted
+        let newHeight = goalInput.scrollHeight;
+        const maxHeight = parseInt(getComputedStyle(goalInput).maxHeight); // Get max-height from CSS
+        if (newHeight > maxHeight) {
+            newHeight = maxHeight;
+            goalInput.style.overflowY = 'auto'; // Show scrollbar when max height is reached
+        } else {
+            goalInput.style.overflowY = 'hidden'; // Hide scrollbar if below max height
+        }
+        goalInput.style.height = `${newHeight}px`;
     });
 
     async function sendGoal() {
         const goal = goalInput.value.trim();
         if (!goal) return;
 
+        if (loadingIndicator) loadingIndicator.style.display = 'flex'; // Show loading indicator
+
         addMessageToLog({ type: 'user_goal', content: goal }, conversationDiv);
         goalInput.value = '';
-        thinkingProcessDiv.innerHTML = '<h3>Agent Thinking Process:</h3>';
+        // Reset textarea height after sending
+        goalInput.style.height = 'auto';
+        goalInput.style.overflowY = 'hidden';
+
+        thinkingProcessDiv.innerHTML = '<h3><i class="fas fa-lightbulb"></i> Agent Thinking</h3>'; // Updated title
 
         const currentAgentProfile = agentSelect.value; // Get currently selected agent profile
 
-        try {            const response = await fetch('/api/chat_stream', {
+        try {
+            const response = await fetch('/api/chat_stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -249,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) {
                 const errorResult = await response.json();
                 addMessageToLog({ type: 'error', content: `Server error: ${errorResult.detail || response.statusText}` }, thinkingProcessDiv);
+                // if (loadingIndicator) loadingIndicator.style.display = 'none'; // Hide indicator - moved to finally
                 return;
             }
             const reader = response.body.getReader();
@@ -262,12 +289,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     try {
                         const data = JSON.parse(jsonStr);
                         handleStreamedData(data);
-                    } catch (e) { console.error('Failed to parse streamed JSON:', jsonStr, e); }
+                    } catch (e) { 
+                        console.error('Failed to parse streamed JSON:', jsonStr, e); 
+                        // Optionally add an error message to UI if parsing fails mid-stream
+                        // addMessageToLog({ type: 'error', content: 'Error processing stream data.' }, thinkingProcessDiv);
+                    }
                 });
             }
         } catch (error) {
             console.error('Error sending goal:', error);
             addMessageToLog({ type: 'error', content: 'Failed to connect or stream response.' }, thinkingProcessDiv);
+        } finally {
+            if (loadingIndicator) loadingIndicator.style.display = 'none'; // Hide loading indicator in finally block
         }
     }
 
@@ -281,47 +314,110 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function addMessageToLog(data, targetDiv, prefix = '') {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('log-message', `log-${data.type}`);
-        
-        let displayPrefix = prefix; // Use the passed prefix first
-
-        // If no prefix was passed (e.g. for thinking steps) or if it's not a special case handled by prefix,
-        // then create a default prefix from data.type.
-        // The 'user_goal' type should now always come with "You:" as prefix from handleStreamedData.
-        if (!displayPrefix && data.type) { 
-            displayPrefix = data.type.replace(/_/g, ' ').toUpperCase();
+        let styleType = data.type;
+        let iconClass = '';
+    
+        // Determine styleType for CSS class and icon
+        switch (data.type) {
+            case 'user_goal':
+                styleType = 'user';
+                iconClass = 'fas fa-user-circle';
+                prefix = prefix || 'You'; // Ensure prefix is set
+                break;
+            case 'final_answer':
+                styleType = 'agent';
+                iconClass = 'fas fa-robot';
+                prefix = prefix || 'Agent'; // Ensure prefix is set
+                break;
+            case 'thought':
+                styleType = 'thought';
+                iconClass = 'fas fa-comment-dots';
+                break;
+            case 'tool_input':
+            case 'tool_output':
+            case 'tool_call':
+            case 'tool':
+                styleType = 'tool';
+                iconClass = 'fas fa-cogs';
+                break;
+            case 'info':
+                styleType = 'info';
+                iconClass = 'fas fa-info-circle';
+                break;
+            case 'error':
+                styleType = 'error';
+                iconClass = 'fas fa-exclamation-circle';
+                break;
+            default:
+                styleType = data.type; // Keep original type for class name
+                if (targetDiv === thinkingProcessDiv && data.type !== 'prompt_context') {
+                    iconClass = 'fas fa-stream'; // Generic icon for other thinking steps
+                }
+                break;
         }
-
-        let contentHTML = `<strong>${escapeHtml(displayPrefix)}:</strong> `;
-        
+    
+        messageElement.classList.add('log-message', styleType);
+    
+        let displayPrefixText = prefix; 
+    
+        if (!displayPrefixText && data.type) {
+            displayPrefixText = data.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+    
+        let messageContentText = '';
         if (data.type === 'prompt_context' && data.data) { 
-            contentHTML += `<pre>${JSON.stringify(data.data, null, 2)}</pre>`;
+            messageContentText = `<pre>${escapeHtml(JSON.stringify(data.data, null, 2))}</pre>`;
         } else if (typeof data.content === 'object') {
-            contentHTML += `<pre>${JSON.stringify(data.content, null, 2)}</pre>`;
-        } else if (data.content !== undefined) {
-            // For user_goal, the content is the goal itself.
-            // For final_answer, content is the answer.
-            // For other types, content is what it is.
-            contentHTML += escapeHtml(String(data.content));
+            messageContentText = `<pre>${escapeHtml(JSON.stringify(data.content, null, 2))}</pre>`;
+        } else if (data.content !== undefined && data.content !== null) {
+            messageContentText = escapeHtml(String(data.content));
+        } else if (data.type === 'user_goal' && data.goal) { // Fallback for older user_goal structure if any
+            messageContentText = escapeHtml(String(data.goal));
         }
-
-        if (data.tool_name) contentHTML += `<br/>Tool: ${escapeHtml(data.tool_name)}`;
-        if (data.tool_args) contentHTML += `<br/>Args: <pre>${escapeHtml(JSON.stringify(data.tool_args, null, 2))}</pre>`;
-        if (data.iteration !== undefined) contentHTML += ` Iteration: ${data.iteration}/${data.max_iterations}`;
+    
+        let toolInfoHTML = '';
+        if (data.tool_name) toolInfoHTML += `<div class="tool-info">Tool: ${escapeHtml(data.tool_name)}</div>`;
+        if (data.tool_args) toolInfoHTML += `<div class="tool-info">Args: <pre>${escapeHtml(JSON.stringify(data.tool_args, null, 2))}</pre></div>`;
+        if (data.iteration !== undefined && data.max_iterations !== undefined) { // Ensure both are present
+            toolInfoHTML += `<div class="iteration-info">Iteration: ${data.iteration}/${data.max_iterations}</div>`;
+        }
+    
+        const timestampHTML = `<span class="timestamp">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+    
+        let iconContainerHTML = '';
+        if (iconClass) {
+            iconContainerHTML = `<span class="msg-icon-container"><i class="${iconClass} msg-icon ${styleType}-icon"></i></span>`;
+        }
         
-        messageElement.innerHTML = contentHTML;
+        let mainContentPrefixHTML = '';
+        if (displayPrefixText) {
+            let textForPrefix = escapeHtml(displayPrefixText);
+            if (!textForPrefix.endsWith(':') && !textForPrefix.endsWith('?') && !textForPrefix.endsWith('!')) {
+                textForPrefix += ':';
+            }
+            mainContentPrefixHTML = `<strong>${textForPrefix}</strong> `;
+        }
+    
+        messageElement.innerHTML = `
+            ${iconContainerHTML}
+            <div class="msg-content-container">
+                <div class="main-content">${mainContentPrefixHTML}${messageContentText}</div>
+                ${toolInfoHTML}
+                ${timestampHTML}
+            </div>
+        `;
         
-        // Clear "Your conversation will appear here" if it exists
         const emptyStateConversation = conversationDiv.querySelector('.empty-state');
-        if (emptyStateConversation && (data.type === 'user_goal' || data.type === 'final_answer')) {
-            conversationDiv.innerHTML = ''; // Clear only if it's the initial message
+        if (emptyStateConversation && (styleType === 'user' || styleType === 'agent')) {
+            conversationDiv.innerHTML = '';
         }
-        // Clear "Agent's reasoning..." if it exists and we are adding to thinkingProcessDiv
         const emptyStateThinking = thinkingProcessDiv.querySelector('.empty-state');
-         if (emptyStateThinking && targetDiv === thinkingProcessDiv && thinkingProcessDiv.children.length <= 1) { // Check if only h3 and empty state
-            thinkingProcessDiv.innerHTML = '<h3><i class="fas fa-brain"></i> Agent Thinking Process:</h3>'; // Clear only if it's the initial message
+        if (emptyStateThinking && targetDiv === thinkingProcessDiv && thinkingProcessDiv.children.length <= 1 && thinkingProcessDiv.querySelector('h3')) {
+            const h3 = thinkingProcessDiv.querySelector('h3');
+            thinkingProcessDiv.innerHTML = '';
+            if(h3) thinkingProcessDiv.appendChild(h3); // Keep the h3 title
         }
-
+    
         targetDiv.appendChild(messageElement);
         targetDiv.scrollTop = targetDiv.scrollHeight;
     }
