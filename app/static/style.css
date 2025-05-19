@@ -358,7 +358,130 @@ h3 {
     color: var(--color-text-primary); /* Or a specific thought text color */
 }
 
+/* Collapsible message styling */
+.collapsible-header {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm); /* Increased gap for better spacing */
+    padding: var(--spacing-xs) 0;
+    border-radius: var(--border-radius-sm);
+    /* transition: background-color var(--transition-fast); */ /* Optional: hover effect */
+}
 
+/* Optional: hover effect for the header */
+/* .log-message.collapsible:hover .collapsible-header {
+    background-color: rgba(0,0,0,0.03);
+} */
+
+.collapsible-header .toggle-icon {
+    transition: transform 0.2s ease-in-out;
+    font-size: 0.9em; /* Slightly larger for better visibility */
+    color: var(--color-text-secondary);
+    width: 16px; /* Ensure consistent width for alignment */
+    text-align: center;
+}
+
+.collapsible-header .summary-text {
+    flex-grow: 1;
+    font-style: italic;
+    color: var(--color-text-secondary);
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.collapsible-content {
+    display: none; /* Hidden by default */
+    padding-left: calc(var(--spacing-sm) + 16px + var(--spacing-sm)); /* Indent based on icon width and gaps */
+    margin-top: var(--spacing-xs);
+    padding-top: var(--spacing-xs);
+    padding-bottom: var(--spacing-xs);
+    border-left: 2px solid var(--color-border); /* Visual cue for nesting */
+    margin-left: calc(var(--spacing-sm) + 8px); /* Align with icon/text area of header, adjust as needed */
+}
+
+.collapsible-content.expanded {
+    display: block;
+}
+
+
+.log-message.thought.collapsible .collapsible-header .summary-text,
+.log-message.tool.collapsible .collapsible-header .summary-text {
+    font-style: normal; /* Summary might not need to be italic if prefix is bold */
+}
+
+/* Ensure the prefix (Thought:, Tool Usage:) is not italic if it's part of summary-text */
+.collapsible-header .summary-text strong {
+    font-style: normal;
+    font-weight: 600; /* Or 500, depending on desired emphasis */
+    color: var(--color-text-primary); /* Make prefix more prominent */
+}
+
+/* Styling for Code Snippets and Copy Button */
+.code-block-wrapper {
+    position: relative; /* For positioning the copy button */
+    margin-top: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
+}
+
+pre code.code-snippet, /* Target <code> inside <pre> */
+pre.code-snippet /* Target <pre> directly if it has the class (e.g. for JSON in tool_args) */
+{
+    display: block; /* Ensure <pre> or <code> takes full width for background */
+    background-color: #2d2d2d; /* Dark background for code */
+    color: #f0f0f0; /* Light text for contrast */
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius-sm);
+    overflow-x: auto; /* Allow horizontal scrolling for long lines */
+    border: 1px solid #444; /* Subtle border */
+    white-space: pre; /* Preserve whitespace and line breaks, prevent wrapping */
+    /* Add top padding to make space for the copy button if it's absolutely positioned inside */
+    padding-top: calc(var(--spacing-md) + 10px); /* Adjust if button size changes */
+}
+
+.copy-code-btn {
+    position: absolute;
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    background-color: var(--color-text-secondary); /* Neutral background */
+    color: var(--color-surface);
+    border: none;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    font-size: 0.8em;
+    opacity: 0.7; /* Slightly transparent until hover */
+    transition: opacity var(--transition-fast), background-color var(--transition-fast);
+    z-index: 10; /* Ensure it's above the <pre> block */
+}
+
+.copy-code-btn:hover {
+    background-color: var(--color-primary);
+    opacity: 1;
+}
+
+.copy-code-btn i {
+    margin-right: var(--spacing-xs);
+}
+
+.copy-code-btn:disabled {
+    background-color: var(--color-success);
+    opacity: 1;
+    cursor: default;
+}
+
+.copy-code-btn:disabled i.fa-times {
+    color: var(--color-surface); /* Ensure X is visible on red background */
+}
+
+.copy-code-btn.failed {
+    background-color: var(--color-error);
+    opacity: 1;
+}
 
 .log-message.tool { /* New style for tool calls */
     background-color: var(--tool-message-bg);
@@ -947,4 +1070,37 @@ button:disabled, .button:disabled {
     overflow: hidden; 
     clip: rect(0, 0, 0, 0); 
     border: 0; 
+}
+
+/* Agent Description Box Styling */
+#agent-description-box {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-sm); /* Add some space above if it's below agent select */
+    margin-bottom: var(--spacing-lg); /* Space below before chat area */
+    box-shadow: var(--box-shadow-light);
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+    min-height: 50px; /* Ensure it has some height even when empty or loading */
+    display: flex; /* To center text if needed, or for placeholder */
+    align-items: center; /* Center content vertically */
+    justify-content: flex-start; /* Align text to the left */
+}
+
+#agent-description-box p {
+    margin: 0;
+    line-height: 1.5;
+}
+
+#agent-description-box .empty-state-text,
+#agent-description-box .error-text {
+    font-style: italic;
+    width: 100%;
+    text-align: center;
+}
+
+#agent-description-box .error-text {
+    color: var(--color-error);
 }

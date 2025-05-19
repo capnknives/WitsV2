@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const conversationDiv = document.getElementById('conversation');
     const thinkingProcessDiv = document.getElementById('thinking-process');
     const loadingIndicator = document.getElementById('loading-indicator'); // Added loading indicator element
+    const agentDescriptionBox = document.getElementById('agent-description-box'); // For agent description
 
     const sessionIdInput = document.getElementById('session-id-input');
     const newSessionBtn = document.getElementById('new-session-btn');
@@ -21,6 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const memorySearchResultsDiv = document.getElementById('memory-search-results');
     const memorySessionIdDisplay = document.getElementById('memory-session-id-display');
     
+    // Clear Chat & Log Buttons
+    const clearChatBtn = document.getElementById('clear-chat-btn');
+    const clearThinkingBtn = document.getElementById('clear-thinking-btn');
+
     // New elements
     const uploadBtn = document.getElementById('upload-btn');
     const fileUpload = document.getElementById('file-upload');
@@ -64,22 +69,39 @@ document.addEventListener('DOMContentLoaded', () => {
         return id.length > 15 ? `${id.substring(0,15)}...` : id;
     }
 
+    // Function to set empty state for a log area
+    function setEmptyState(logContainer, message, iconClass = 'fas fa-info-circle') {
+        const messagesContainer = logContainer.querySelector('.messages-container');
+        if (messagesContainer) {
+            messagesContainer.innerHTML = `
+                <div class=\"empty-state\">
+                    <i class=\"${iconClass} fa-3x\"></i>
+                    <p>${message}</p>
+                </div>`;
+        } else { // Fallback for older structure if .messages-container is not there (should not happen with new HTML)
+            logContainer.innerHTML = `
+                <div class=\"empty-state\">
+                    <i class=\"${iconClass} fa-3x\"></i>
+                    <p>${message}</p>
+                </div>`;
+        }
+    }
+
     newSessionBtn.addEventListener('click', () => {
         currentSessionId = generateSessionId();
         localStorage.setItem('witsNexusSessionId', currentSessionId);
         sessionIdInput.value = currentSessionId;
         memorySessionIdDisplay.textContent = formatSessionId(currentSessionId);
-        conversationDiv.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-comments fa-3x"></i>
-                <p>Your conversation with WITS-NEXUS will appear here</p>
-            </div>`;
-        thinkingProcessDiv.innerHTML = `
-            <h3><i class="fas fa-brain"></i> Agent Thinking Process:</h3>
-            <div class="empty-state">
-                <i class="fas fa-lightbulb fa-3x"></i>
-                <p>Agent's reasoning and planning will appear here</p>
-            </div>`;
+        
+        // Use setEmptyState for conversation and thinking logs
+        setEmptyState(conversationDiv, 'Your conversation with WITS-NEXUS will appear here', 'fas fa-comments');
+        
+        const thinkingH3 = thinkingProcessDiv.querySelector('.thinking-header h3'); // Preserve header
+        setEmptyState(thinkingProcessDiv, 'Agent\'s reasoning and planning will appear here', 'fas fa-lightbulb');
+        if (thinkingH3 && !thinkingProcessDiv.querySelector('.thinking-header h3')) {
+            thinkingProcessDiv.querySelector('.thinking-header').prepend(thinkingH3);
+        }
+
         memorySearchResultsDiv.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-history fa-2x"></i>
@@ -91,6 +113,30 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchSessionLLMParameters(); // Fetch params for the new session
     });
 
+    // --- Clear Chat/Log Functionality ---
+    if (clearChatBtn) {
+        clearChatBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear the current chat conversation?')) {
+                setEmptyState(conversationDiv, 'Chat cleared. Start a new conversation!', 'fas fa-comments');
+                // Optionally, send a signal to the backend to clear server-side chat history for the session if needed
+                // addMessageToLog({ type: 'info', content: 'Chat cleared by user.' }, thinkingProcessDiv); // Log action
+            }
+        });
+    }
+
+    if (clearThinkingBtn) {
+        clearThinkingBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear the agent thinking log?')) {
+                const thinkingH3 = thinkingProcessDiv.querySelector('.thinking-header h3');
+                setEmptyState(thinkingProcessDiv, 'Thinking log cleared.', 'fas fa-lightbulb');
+                // Ensure the header (H3) is preserved if it was inside .thinking-header
+                // The setEmptyState for thinkingProcessDiv might wipe out the header if not handled carefully.
+                // The current HTML structure has H3 inside .thinking-header, which is outside .messages-container
+                // So, it should be fine. If H3 was inside messages-container, it would need re-adding.
+            }
+        });
+    }
+
     // --- Agent Selection ---
     async function fetchAgentProfiles() {
         try {
@@ -99,40 +145,54 @@ document.addEventListener('DOMContentLoaded', () => {
             const profiles = await response.json();
             
             agentSelect.innerHTML = ''; // Clear existing
+            agentDescriptionBox.innerHTML = ''; // Clear description box
+
             let previouslySelectedAgent = localStorage.getItem(`selectedAgent_${currentSessionId}`);
+
+            if (profiles.length === 0) {
+                agentDescriptionBox.innerHTML = '<p class="empty-state-text">No agent profiles available.</p>';
+                return;
+            }
 
             profiles.forEach(profile => {
                 const option = document.createElement('option');
                 option.value = profile.name;
                 option.textContent = profile.display_name || profile.name;
-                option.title = profile.description || '';
+                option.title = profile.description || ''; // Keep title for tooltip
+                // Store description in a data attribute for easy access
+                option.dataset.description = profile.description || 'No description available for this agent.';
                 agentSelect.appendChild(option);
             });
 
             if (previouslySelectedAgent && profiles.some(p => p.name === previouslySelectedAgent)) {
                 agentSelect.value = previouslySelectedAgent;
             } else if (profiles.length > 0) {
-                // Try to get default from config if possible, or just select first
-                // For now, just select the first one if no previous selection
-                 previouslySelectedAgent = profiles[0].name; // Fallback to first
+                 previouslySelectedAgent = profiles[0].name; 
                  agentSelect.value = previouslySelectedAgent;
             }
             
-            if (agentSelect.value) { // If an agent is selected (either previous or first)
-                 await selectAgentForSession(agentSelect.value); // Inform backend and fetch its params
+            if (agentSelect.value) { 
+                 const selectedOption = agentSelect.options[agentSelect.selectedIndex];
+                 agentDescriptionBox.innerHTML = `<p>${escapeHtml(selectedOption.dataset.description)}</p>`;
+                 await selectAgentForSession(agentSelect.value); 
             }
 
 
         } catch (error) {
             console.error('Error fetching agent profiles:', error);
             addMessageToLog({ type: 'error', content: 'Failed to load agent profiles.' }, thinkingProcessDiv);
+            agentDescriptionBox.innerHTML = '<p class="error-text">Could not load agent descriptions.</p>';
         }
     }
 
     agentSelect.addEventListener('change', async () => {
         const selectedProfileName = agentSelect.value;
         if (selectedProfileName) {
+            const selectedOption = agentSelect.options[agentSelect.selectedIndex];
+            agentDescriptionBox.innerHTML = `<p>${escapeHtml(selectedOption.dataset.description)}</p>`;
             await selectAgentForSession(selectedProfileName);
+        } else {
+            agentDescriptionBox.innerHTML = ''; // Clear if no agent is selected
         }
     });
 
@@ -150,6 +210,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
             localStorage.setItem(`selectedAgent_${currentSessionId}`, profileName); // Store selection per session
             addMessageToLog({ type: 'info', content: `Switched to agent: ${profileName}. ${result.message || ''}` }, thinkingProcessDiv);
+            // Update description box based on the newly selected agent from the dropdown
+            const selectedOption = Array.from(agentSelect.options).find(opt => opt.value === profileName);
+            if (selectedOption && selectedOption.dataset.description) {
+                agentDescriptionBox.innerHTML = `<p>${escapeHtml(selectedOption.dataset.description)}</p>`;
+            } else {
+                 agentDescriptionBox.innerHTML = '<p>No description available for this agent.</p>'; // Fallback
+            }
             fetchSessionLLMParameters(); // Fetch parameters for the newly selected agent
         } catch (error) {
             console.error('Error selecting agent:', error);
@@ -316,22 +383,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageElement = document.createElement('div');
         let styleType = data.type;
         let iconClass = '';
-    
+        let isCollapsible = false;
+        // let initialSummary = ''; // Not directly used here, summary is generated dynamically
+
         // Determine styleType for CSS class and icon
         switch (data.type) {
             case 'user_goal':
                 styleType = 'user';
                 iconClass = 'fas fa-user-circle';
-                prefix = prefix || 'You'; // Ensure prefix is set
+                prefix = prefix || 'You';
                 break;
             case 'final_answer':
                 styleType = 'agent';
                 iconClass = 'fas fa-robot';
-                prefix = prefix || 'Agent'; // Ensure prefix is set
+                prefix = prefix || 'Agent';
                 break;
             case 'thought':
                 styleType = 'thought';
                 iconClass = 'fas fa-comment-dots';
+                isCollapsible = true;
                 break;
             case 'tool_input':
             case 'tool_output':
@@ -339,6 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'tool':
                 styleType = 'tool';
                 iconClass = 'fas fa-cogs';
+                isCollapsible = true;
                 break;
             case 'info':
                 styleType = 'info';
@@ -349,82 +420,212 @@ document.addEventListener('DOMContentLoaded', () => {
                 iconClass = 'fas fa-exclamation-circle';
                 break;
             default:
-                styleType = data.type; // Keep original type for class name
+                styleType = data.type;
                 if (targetDiv === thinkingProcessDiv && data.type !== 'prompt_context') {
-                    iconClass = 'fas fa-stream'; // Generic icon for other thinking steps
+                    iconClass = 'fas fa-stream';
                 }
                 break;
         }
-    
+
         messageElement.classList.add('log-message', styleType);
-    
-        let displayPrefixText = prefix; 
-    
+        if (isCollapsible) {
+            messageElement.classList.add('collapsible');
+        }
+
+        let displayPrefixText = prefix;
         if (!displayPrefixText && data.type) {
-            displayPrefixText = data.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            displayPrefixText = data.type.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());
         }
-    
-        let messageContentText = '';
-        if (data.type === 'prompt_context' && data.data) { 
-            messageContentText = `<pre>${escapeHtml(JSON.stringify(data.data, null, 2))}</pre>`;
+
+        let messageContentHTML = ''; // Changed to HTML to handle code snippets
+        let fullContentForCollapsible = '';
+
+        // Code snippet detection and formatting
+        const codeBlockRegex = /```([a-zA-Z]*)\\n([\\s\\S]*?)```/g;
+        let rawContent = '';
+
+        if (data.type === 'prompt_context' && data.data) {
+            rawContent = JSON.stringify(data.data, null, 2);
+            // This is already typically wrapped in <pre> by existing logic, let\'s ensure it is
+            messageContentHTML = `<pre class="code-snippet json">${escapeHtml(rawContent)}</pre>`;
         } else if (typeof data.content === 'object') {
-            messageContentText = `<pre>${escapeHtml(JSON.stringify(data.content, null, 2))}</pre>`;
+            rawContent = JSON.stringify(data.content, null, 2);
+            messageContentHTML = `<pre class="code-snippet json">${escapeHtml(rawContent)}</pre>`;
         } else if (data.content !== undefined && data.content !== null) {
-            messageContentText = escapeHtml(String(data.content));
-        } else if (data.type === 'user_goal' && data.goal) { // Fallback for older user_goal structure if any
-            messageContentText = escapeHtml(String(data.goal));
+            rawContent = String(data.content);
+            if (codeBlockRegex.test(rawContent)) {
+                messageContentHTML = rawContent.replace(codeBlockRegex, (match, lang, code) => {
+                    const languageClass = lang ? `language-${escapeHtml(lang)}` : '';
+                    // Add copy button inside the pre tag for better positioning relative to the code
+                    return `<div class="code-block-wrapper">
+                                <button class="copy-code-btn" title="Copy code"><i class="fas fa-copy"></i> Copy</button>
+                                <pre><code class="code-snippet ${languageClass}">${escapeHtml(code.trim())}</code></pre>
+                            </div>`;
+                });
+            } else {
+                messageContentHTML = escapeHtml(rawContent);
+            }
+        } else if (data.type === 'user_goal' && data.goal) {
+            rawContent = String(data.goal);
+            messageContentHTML = escapeHtml(rawContent);
         }
-    
+        
+        fullContentForCollapsible = messageContentHTML; // Use the potentially HTML formatted content
+
         let toolInfoHTML = '';
         if (data.tool_name) toolInfoHTML += `<div class="tool-info">Tool: ${escapeHtml(data.tool_name)}</div>`;
-        if (data.tool_args) toolInfoHTML += `<div class="tool-info">Args: <pre>${escapeHtml(JSON.stringify(data.tool_args, null, 2))}</pre></div>`;
-        if (data.iteration !== undefined && data.max_iterations !== undefined) { // Ensure both are present
+        if (data.tool_args) {
+            const argsString = escapeHtml(JSON.stringify(data.tool_args, null, 2));
+            toolInfoHTML += `<div class="tool-info">Args: <pre class="code-snippet json">${argsString}</pre></div>`;
+        }
+        if (data.iteration !== undefined && data.max_iterations !== undefined) {
             toolInfoHTML += `<div class="iteration-info">Iteration: ${data.iteration}/${data.max_iterations}</div>`;
         }
-    
+
+        if (isCollapsible && toolInfoHTML) {
+            fullContentForCollapsible += toolInfoHTML;
+            toolInfoHTML = '';
+        }
+
         const timestampHTML = `<span class="timestamp">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
-    
-        let iconContainerHTML = '';
-        if (iconClass) {
-            iconContainerHTML = `<span class="msg-icon-container"><i class="${iconClass} msg-icon ${styleType}-icon"></i></span>`;
-        }
-        
-        let mainContentPrefixHTML = '';
-        if (displayPrefixText) {
-            let textForPrefix = escapeHtml(displayPrefixText);
-            if (!textForPrefix.endsWith(':') && !textForPrefix.endsWith('?') && !textForPrefix.endsWith('!')) {
-                textForPrefix += ':';
+        let iconContainerHTML = iconClass ? `<span class="msg-icon-container"><i class="${iconClass} msg-icon ${styleType}-icon"></i></span>` : '';
+        let mainContentPrefixHTML = displayPrefixText ? `<strong>${escapeHtml(displayPrefixText.endsWith(':') || displayPrefixText.endsWith('?') || displayPrefixText.endsWith('!') ? displayPrefixText : displayPrefixText + ':')}</strong> ` : '';
+
+        if (isCollapsible) {
+            let summaryText;
+            // Generate a text-only summary for the header
+            let textOnlyContentForSummary = rawContent; 
+            if (typeof data.content === 'object') textOnlyContentForSummary = JSON.stringify(data.content);
+
+
+            if (data.type === 'tool' || data.type === 'tool_call' || data.type === 'tool_input' || data.type === 'tool_output') {
+                summaryText = `Tool: ${escapeHtml(data.tool_name || 'Details')} ${data.tool_args ? '(click to expand args)' : '(click to expand)'}`;
+            } else if (data.type === 'thought') {
+                summaryText = `Thought: ${(textOnlyContentForSummary.length > 70 ? textOnlyContentForSummary.substring(0, 67) + "..." : textOnlyContentForSummary) || '(click to expand)'}`;
+            } else {
+                 summaryText = (textOnlyContentForSummary.length > 100 ? textOnlyContentForSummary.substring(0, 97) + "..." : textOnlyContentForSummary) || '(click to expand)';
             }
-            mainContentPrefixHTML = `<strong>${textForPrefix}</strong> `;
+
+
+            messageElement.innerHTML = `
+                ${iconContainerHTML}
+                <div class="msg-content-container">
+                    <div class="collapsible-header" role="button" tabindex="0" aria-expanded="false">
+                        <span class="toggle-icon fas fa-chevron-right"></span>
+                        ${mainContentPrefixHTML}
+                        <span class="summary-text">${escapeHtml(summaryText)}</span>
+                    </div>
+                    <div class="collapsible-content">
+                        ${fullContentForCollapsible} 
+                        ${ data.type === 'tool' || data.type === 'tool_call' || data.type === 'tool_input' || data.type === 'tool_output' ? toolInfoHTML : ''}
+                        ${timestampHTML}
+                    </div>
+                </div>
+            `;
+            
+            const header = messageElement.querySelector('.collapsible-header');
+            const content = messageElement.querySelector('.collapsible-content');
+            const toggleIcon = messageElement.querySelector('.toggle-icon');
+
+            header.addEventListener('click', () => {
+                const isExpanded = content.classList.toggle('expanded');
+                toggleIcon.classList.toggle('fa-chevron-right', !isExpanded);
+                toggleIcon.classList.toggle('fa-chevron-down', isExpanded);
+                header.setAttribute('aria-expanded', isExpanded);
+            });
+            header.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    header.click();
+                }
+            });
+
+        } else {
+            messageElement.innerHTML = `
+                ${iconContainerHTML}
+                <div class="msg-content-container">
+                    <div class="main-content">${mainContentPrefixHTML}${messageContentHTML}</div>
+                    ${toolInfoHTML}
+                    ${timestampHTML}
+                </div>
+            `;
         }
-    
-        messageElement.innerHTML = `
-            ${iconContainerHTML}
-            <div class="msg-content-container">
-                <div class="main-content">${mainContentPrefixHTML}${messageContentText}</div>
-                ${toolInfoHTML}
-                ${timestampHTML}
-            </div>
-        `;
         
-        const emptyStateConversation = conversationDiv.querySelector('.empty-state');
+        // Attach copy functionality to all new copy buttons
+        messageElement.querySelectorAll('.copy-code-btn').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const wrapper = event.target.closest('.code-block-wrapper');
+                const codeElement = wrapper ? wrapper.querySelector('pre code.code-snippet') : null;
+                if (codeElement) {
+                    copyToClipboard(codeElement.textContent, button);
+                } else { // Fallback for tool_args pre blocks if needed, though they don\'t have a button yet
+                    const preElement = event.target.closest('.tool-info')?.querySelector('pre.code-snippet');
+                    if (preElement) {
+                         copyToClipboard(preElement.textContent, button);
+                    }
+                }
+            });
+        });
+
+        // Clear empty state message if it exists
+        const messagesContainerConv = conversationDiv.querySelector('.messages-container');
+        const emptyStateConversation = messagesContainerConv ? messagesContainerConv.querySelector('.empty-state') : conversationDiv.querySelector('.empty-state');
         if (emptyStateConversation && (styleType === 'user' || styleType === 'agent')) {
-            conversationDiv.innerHTML = '';
+            if (messagesContainerConv) messagesContainerConv.innerHTML = '';
+            else conversationDiv.innerHTML = '';
         }
-        const emptyStateThinking = thinkingProcessDiv.querySelector('.empty-state');
-        if (emptyStateThinking && targetDiv === thinkingProcessDiv && thinkingProcessDiv.children.length <= 1 && thinkingProcessDiv.querySelector('h3')) {
-            const h3 = thinkingProcessDiv.querySelector('h3');
-            thinkingProcessDiv.innerHTML = '';
-            if(h3) thinkingProcessDiv.appendChild(h3); // Keep the h3 title
+
+        const messagesContainerThinking = thinkingProcessDiv.querySelector('.messages-container');
+        const emptyStateThinking = messagesContainerThinking ? messagesContainerThinking.querySelector('.empty-state') : thinkingProcessDiv.querySelector('.empty-state');
+        if (emptyStateThinking && targetDiv === thinkingProcessDiv) {
+            if (messagesContainerThinking) {
+                 if (messagesContainerThinking.querySelector('.empty-state')) messagesContainerThinking.innerHTML = '';
+            } else {
+                // Original logic if no .messages-container
+                const h3 = thinkingProcessDiv.querySelector('h3');
+                thinkingProcessDiv.innerHTML = '';
+                if(h3) thinkingProcessDiv.appendChild(h3);
+            }
         }
-    
-        targetDiv.appendChild(messageElement);
-        targetDiv.scrollTop = targetDiv.scrollHeight;
+        
+        // Append to correct container
+        const targetMessagesContainer = targetDiv.querySelector('.messages-container');
+        if (targetMessagesContainer) {
+            targetMessagesContainer.appendChild(messageElement);
+            targetMessagesContainer.scrollTop = targetMessagesContainer.scrollHeight;
+        } else {
+            targetDiv.appendChild(messageElement); // Fallback if no .messages-container
+            targetDiv.scrollTop = targetDiv.scrollHeight;
+        }
     }
 
     function escapeHtml(unsafe) {
         if (unsafe === null || unsafe === undefined) return '';
+        // Added check for code snippets to prevent double escaping if already formatted
+        if (typeof unsafe === 'string' && unsafe.includes('<pre class="code-snippet">')) {
+            return unsafe;
+        }
         return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // --- Utility function to copy text to clipboard ---
+    function copyToClipboard(text, buttonElement) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalButtonText = buttonElement.innerHTML;
+            buttonElement.innerHTML = '<i class="fas fa-check"></i> Copied!';
+            buttonElement.disabled = true;
+            setTimeout(() => {
+                buttonElement.innerHTML = originalButtonText;
+                buttonElement.disabled = false;
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            const originalButtonText = buttonElement.innerHTML;
+            buttonElement.innerHTML = '<i class="fas fa-times"></i> Failed';
+            setTimeout(() => {
+                buttonElement.innerHTML = originalButtonText;
+            }, 2000);
+        });
     }
 
     // --- Memory Controls ---

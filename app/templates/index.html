@@ -42,6 +42,7 @@
                     <div class="control-group">
                         <label for="agent-select"><i class="fas fa-robot"></i> Active Agent:</label>
                         <select id="agent-select" aria-label="Select active agent"></select>
+                        <div id="agent-description-box" class="agent-description-box" aria-live="polite"></div> <!-- Added for agent description -->
                     </div>
                     <div class="control-group">
                         <label for="model-select"><i class="fas fa-cogs"></i> LLM Model:</label> <!-- Changed icon -->
@@ -57,17 +58,28 @@
 
                 <div class="chat-area">
                     <div id="conversation" class="conversation-log" aria-live="polite" aria-atomic="false" role="log">
-                        <div class="empty-state">
-                            <i class="fas fa-comments fa-3x"></i>
-                            <p>Your conversation will appear here.</p>
+                        <div class="chat-header"> <!-- Added chat header -->
+                            <h3><i class="fas fa-comments"></i> Conversation</h3>
+                            <button id="clear-chat-btn" title="Clear Chat Messages"><i class="fas fa-eraser"></i> Clear Chat</button>
+                        </div>
+                        <div class="messages-container"> <!-- Wrapper for messages -->
+                            <div class="empty-state">
+                                <i class="fas fa-comments fa-3x"></i>
+                                <p>Your conversation will appear here.</p>
+                            </div>
                         </div>
                         <!-- Loading indicator will be injected here by JS -->
                     </div>
                     <aside id="thinking-process" class="thinking-log" aria-live="polite" aria-atomic="false" role="log"> <!-- Changed to aside -->
-                        <h3><i class="fas fa-lightbulb"></i> Agent Thinking</h3> <!-- Changed icon -->
-                        <div class="empty-state">
-                            <i class="fas fa-spinner fa-pulse fa-3x"></i> <!-- Changed icon -->
-                            <p>Agent's thoughts and actions will appear here.</p>
+                        <div class="thinking-header"> <!-- Added thinking header -->
+                             <h3><i class="fas fa-lightbulb"></i> Agent Thinking</h3> <!-- Changed icon -->
+                             <button id="clear-thinking-btn" title="Clear Thinking Log"><i class="fas fa-eraser"></i> Clear Log</button>
+                        </div>
+                        <div class="messages-container"> <!-- Wrapper for messages -->
+                            <div class="empty-state">
+                                <i class="fas fa-spinner fa-pulse fa-3x"></i> <!-- Changed icon -->
+                                <p>Agent's thoughts and actions will appear here.</p>
+                            </div>
                         </div>
                          <!-- Loading indicator for thoughts (optional) -->
                     </aside>
