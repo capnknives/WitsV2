@@ -1,245 +1,186 @@
-# WITSAI (WITS-NEXUS v2)
+# WITS-NEXUS v2 (WITS AI System)
 
-WITSAI is an advanced AI system built on the WITS-NEXUS framework, designed to provide powerful, extensible, and ethical AI capabilities through a modular architecture.
+**WITS-NEXUS v2** is an advanced, modular AI system designed for complex task orchestration and intelligent decision-making. It leverages a hierarchical agent architecture, sophisticated memory management with GPU-accelerated vector search, and an extensible toolset to tackle diverse goals.
 
-## Requirements
+**Current Version:** 4.0.0 (as of May 18, 2025)
 
-- **Python 3.10.x** - This project requires Python 3.10 specifically for compatibility with FAISS-GPU and other dependencies
-- **CUDA-compatible GPU** - For GPU-accelerated vector search and embeddings
-- **Conda Environment** - Used to manage Python version and GPU-related dependencies
+## Core Philosophy
 
-## Quick Start
-
-### Running the Application
-
-1. **Use the provided startup scripts** (recommended):
-   ```
-   .\start_wits.ps1   # PowerShell
-   ```
-   or
-   ```
-   start.bat          # Command Prompt
-   ```
-   These scripts automatically ensure the correct Python version and environment are used.
-
-2. **Manual activation** (if needed):
-   ```
-   conda activate faiss_gpu_env2
-   python run.py
-   ```
-
-3. **Verify your environment**:
-   ```
-   conda activate faiss_gpu_env2
-   python verify_environment.py
-   ```
+WITS-NEXUS v2 aims to provide a robust framework for:
+-   **Intelligent Task Decomposition:** Breaking down complex user goals into manageable sub-tasks.
+-   **Strategic Delegation:** Assigning tasks to specialized AI agents best suited for the job.
+-   **Contextual Awareness:** Maintaining and utilizing rich conversational and operational history.
+-   **Extensibility:** Allowing easy integration of new tools and specialized agents.
+-   **Transparency:** Providing detailed logging and debugging capabilities for insight into agent operations.
 
 ## Key Features
 
-- 🧠 **Advanced Memory Management** - Vector-based semantic search with FAISS-GPU
-- 🛠️ **Extensible Tool System** - Easily add new capabilities through modular tools
-- 🤖 **Multiple Specialized Agents** - Dedicated agents for different tasks
-- 🌐 **Web Interface** - Modern FastAPI-based web interface
-- 🔒 **Ethics Framework** - Built-in ethical considerations
-- 📊 **Vector Memory** - Efficient storage and retrieval of conversations
-- 🔄 **Async Operation** - High-performance asynchronous execution
-- ⚡ **MCP Architecture** - Model-Chosen Parameters for intelligent tool usage
-- 🔍 **Semantic Search** - Advanced context retrieval using embeddings
-- 📝 **Structured Data** - Pydantic-based validation throughout
-- 🔎 **Powerful Debugging** - Comprehensive logging, performance monitoring, and debug visualization
-
-## Components
-
-- **Orchestrator Agent**: Implements the ReAct loop (Reason-Act-Observe) for solving goals
-- **Memory Manager**: Stores conversation history, segments, and goals with vector search
-- **LLM Interface**: Handles communication with Ollama language models
-- **Tool Registry**: Manages available tools that agents can use
-- **Tools**:
-  - Calculator Tool: Performs math operations safely
-  - DateTime Tool: Provides current time with timezone conversion
-  - File Tools: Read, write, and list files
-  - Web Search Tool: Searches the web for information (when enabled)
-
-## Architecture
-
-WITS-NEXUS v2 uses a structured approach where:
-
-1. The user provides a goal to the system
-2. The Orchestrator Agent:
-   - Builds a prompt with relevant context
-   - Asks the LLM to produce a structured JSON response with:
-     - A thought process (reasoning)
-     - An action to take (tool to call or final answer)
-   - Executes the chosen action
-   - Observes the result and loops back to the LLM
-3. This continues until a final answer is reached or max iterations are hit
-
-## Setup and Usage
-
-1.  **Prerequisites**:
-    * Ensure you have Conda installed if you plan to use `faiss-gpu`.
-    * Ensure Ollama is installed and running with the models specified in `config.yaml`.
-
-2.  **Install Python Dependencies**:
-    Install the core Python dependencies using pip:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Install Faiss for Vector Search**:
-    Faiss is crucial for the vector search capabilities. We strongly recommend using GPU support for better performance.
-
-    * For **GPU support** (recommended):
-        1. Install CUDA Toolkit from NVIDIA's website if not already installed
-        2. Create and activate a dedicated conda environment with Python 3.10:
-            ```bash
-            conda create -n wits python=3.10
-            conda activate wits
-            ```
-        3. Install faiss-gpu using conda-forge:
-            ```bash
-            conda install -c conda-forge faiss-gpu
-            ```
-        4. Install other project dependencies:
-            ```bash
-            pip install -r requirements.txt
-            ```
-        5. Verify GPU support:
-            ```python
-            python -c "import faiss; print('GPU support available:', faiss.get_num_gpus() > 0)"
-            ```
-        
-        Always activate the conda environment before running the system:
-        ```bash
-        conda activate wits
-        python run.py
-        ```
-
-    * For **CPU-only support**:
-        If you don't have a compatible GPU or prefer CPU version:
-        ```bash
-        pip install faiss-cpu
-        ```
-
-    **Important Notes**:
-    - Do not have both faiss-cpu and faiss-gpu installed simultaneously
-    - If switching from CPU to GPU version:
-        1. Uninstall faiss-cpu: `pip uninstall faiss-cpu`
-        2. Follow the GPU support installation steps above
-    - If switching from GPU to CPU version:
-        1. Deactivate conda environment: `conda deactivate`
-        2. Install faiss-cpu: `pip install faiss-cpu`
-
-4.  **Run the system**:
-    ```bash
-    python run.py
-    ```
-
-5.  Enter your goal at the WITS v2 prompt.
+-   🧠 **Hierarchical Agent System:**
+    -   **WitsControlCenterAgent (WCCA):** The primary interface for user interaction. It interprets user input, clarifies intent, and delegates well-defined goals to the Orchestrator.
+    -   **OrchestratorAgent:** Implements a ReAct-style (Reason-Act-Observe) loop. It plans and executes tasks by either calling tools directly or delegating to specialized agents.
+    -   **Specialized Agents:** Focused agents (e.g., `EngineerAgent`, `ScribeAgent`, `AnalystAgent`, `ResearcherAgent`) that perform specific types of tasks using a curated set of tools.
+-   💾 **Advanced Memory Management:**
+    -   Persistent memory storage for conversation history, agent thoughts, actions, and observations.
+    -   GPU-accelerated vector search using **FAISS** for efficient semantic retrieval of relevant memories.
+    -   Structured memory segments using Pydantic models (`MemorySegment`, `MemorySegmentContent`).
+-   🛠️ **Extensible Tool System:**
+    -   A `ToolRegistry` allows dynamic registration and discovery of tools.
+    -   Tools are Pydantic-based for clear argument schemas and validation.
+    -   Examples: `CalculatorTool`, `DateTimeTool`, `FileTools` (`ReadFileTool`, `WriteFileTool`, `ListFilesTool`), `WebSearchTool`, `GitTool`, `ProjectFileReaderTool`.
+-   🌐 **Async Operations:** Built with `asyncio` for high-performance, non-blocking I/O.
+-   📝 **Structured Data & Validation:** Extensive use of Pydantic models throughout the system for data integrity and clear schemas (`StreamData`, `OrchestratorLLMResponse`, etc.).
+-   🗣️ **LLM Agnostic (via LLMInterface):** Primarily designed for Ollama-hosted models, but `LLMInterface` can be adapted.
+-   ⚙️ **Configuration Driven:** System behavior, model selection, and features are managed via `config.yaml`.
+-   🔍 **Comprehensive Debugging:**
+    -   Detailed logging (console and file) with configurable levels.
+    -   Performance monitoring for critical operations.
+    -   Component-specific debug flags (e.g., logging prompts/responses).
+-   🖥️ **Dual Interface:**
+    -   **CLI Mode:** For direct interaction and development.
+    -   **Web App Mode (FastAPI):** Provides a web-based UI (details in `app/` directory).
 
 ## Project Structure
 
 ```
-WITSAI/
-├── agents/              # AI agent implementations
-│   └── specialized/    # Specialized agent types
-├── app/                # Web application
-│   ├── routes/        # API routes
-│   ├── static/        # Static files
-│   └── templates/     # HTML templates
-├── capabilities/       # System capabilities
-├── core/              # Core system components
-├── data/              # Data storage
-│   ├── memory/       # Vector memory storage
-│   └── user_files/   # User file storage
-├── tools/             # Tool implementations
-└── tests/             # Test suite
+WITS-NEXUS_v2/
+├── agents/              # Core agent implementations (WCCA, Orchestrator)
+│   └── specialized/     # Specialized agents (Engineer, Scribe, etc.)
+├── app/                 # FastAPI Web Application
+│   ├── routes/
+│   ├── services/
+│   ├── static/
+│   └── templates/
+├── core/                # Core system components (config, llm, memory, schemas, tools)
+├── data/                # Data storage (memory files, user files)
+│   └── memory/
+├── docs/                # Detailed documentation (e.g., FAISS setup)
+├── logs/                # Application logs
+├── tools/               # Implementations of various tools
+├── config.yaml          # Main configuration file
+├── run.py               # Main entry point for CLI and Web App
+├── requirements.txt     # Python dependencies
+├── README.md            # This file
+└── ... (other utility scripts and documentation)
 ```
 
-## Configuration
+## Installation and Setup
 
-The system is configured through `config.yaml`. A template is provided in `config.yaml.example`. Key configuration areas include:
+**1. Prerequisites:**
 
-- Model settings (default and specialized agent models)
-- Web interface configuration
-- Memory management settings
-- Tool configurations
-- Security settings
+*   **Python 3.10.x:** This specific version is crucial for compatibility, especially with `faiss-gpu`.
+*   **NVIDIA GPU with CUDA Toolkit:** Required for GPU-accelerated FAISS. Ensure your drivers and CUDA version are compatible. (Refer to `docs/FAISS-GPU-SETUP.md` for detailed guidance).
+*   **Conda:** Recommended for managing the Python environment and dependencies.
+*   **Ollama:** Install and run Ollama with the models specified in `config.yaml` (e.g., Llama3, CodeLlama). Ensure Ollama is accessible (check `ollama_url` in `config.yaml`).
 
-## Debugging System
+**2. Environment Setup (Recommended using Conda):**
 
-WITS-NEXUS v2 comes with a comprehensive debugging system that provides:
+   a.  **Create and Activate Conda Environment:**
+       The provided startup scripts (`start_wits.ps1` or `start.bat`) attempt to manage this. For manual setup:
+       ```bash
+       conda create -n wits_nexus_env python=3.10
+       conda activate wits_nexus_env
+       ```
+       *(Note: Older documentation might refer to `faiss_gpu_env2`. `wits_nexus_env` is the current standard.)*
 
-- **Structured Logging**: Hierarchical logging with configurable levels
-- **Performance Monitoring**: Time tracking for critical operations
-- **Debug Visualization**: Metrics display in web interface
-- **Component-Specific Debug Options**: Fine-grained control via config
-- **Debug Information Models**: Structured data for consistent debugging
+   b.  **Install FAISS-GPU:**
+       ```bash
+       conda install -c pytorch -c nvidia faiss-gpu=1.7.4 # Or a compatible version
+       # Verify PyTorch version if needed, FAISS conda packages often bundle it.
+       ```
+       *Refer to `FAISS-GPU-INTEGRATION.md` or `docs/FAISS-GPU-SETUP.md` for troubleshooting.*
 
-The debug system can be configured in `config.yaml`:
-```yaml
-debug:
-  enabled: true
-  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  console_logging_enabled: true
-  file_logging_enabled: true
-  log_directory: "logs"
-  performance_monitoring: true
-  components:
-    llm_interface:
-      log_prompts: true
-      log_responses: true
-    memory_manager:
-      log_embeddings: true
-      log_searches: true
-    # Other component-specific settings...
-```
+   c.  **Install Python Dependencies:**
+       ```bash
+       pip install -r requirements.txt
+       ```
 
-## Security Considerations
+**3. Configuration:**
 
-- `data/memory/` contains conversation history and should be properly secured
-- `config.yaml` may contain sensitive configuration - keep it secure
-- User uploads in `data/user_files/` should be monitored
-- Review `allow_code_execution` setting carefully before enabling
+   a.  Copy `config.yaml.example` to `config.yaml`.
+   b.  Review and update `config.yaml`:
+       *   **Model Names:** Ensure `models.default`, `models.orchestrator`, `models.control_center`, etc., match the models you have pulled in Ollama.
+       *   **Ollama URL:** Set `ollama_url` (e.g., `http://localhost:11434`).
+       *   **Embedding Model:** Configure `memory_manager.vector_model` (e.g., `nomic-embed-text`). This model also needs to be available via Ollama or SentenceTransformers.
+       *   **Paths:** Verify `memory_manager.memory_file_path` and other paths.
+       *   **Internet Access & Git Integration:** Enable/disable as needed.
+
+**4. Verify Environment:**
+   Run the verification script (if available and updated for v2) or manually check:
+   ```bash
+   conda activate wits_nexus_env # Or your chosen environment name
+   python
+   >>> import faiss
+   >>> print(faiss.get_num_gpus()) # Should be > 0
+   >>> import torch
+   >>> print(torch.cuda.is_available()) # Should be True
+   >>> exit()
+   ```
+
+## Running WITS-NEXUS v2
+
+**1. Using Startup Scripts (Recommended):**
+   These scripts handle environment activation.
+   *   PowerShell: `.\start.ps1`
+   *   Command Prompt: `start.bat`
+
+**2. Manual Execution:**
+   ```bash
+   conda activate wits_nexus_env # Or your environment name
+   python run.py --mode cli  # For Command Line Interface
+   # or
+   python run.py --mode web  # For Web Application (starts Uvicorn server)
+   ```
+   If `--mode` is not specified, it defaults based on `config.yaml` (`web_interface.enabled`).
+
+## How It Works (High-Level Flow)
+
+1.  **User Input:** The user provides a goal or query (via CLI or Web UI).
+2.  **WitsControlCenterAgent (WCCA):**
+    *   Receives the raw input and conversation history.
+    *   Uses an LLM to analyze the input and decide:
+        *   If the goal is clear: Formulates a `goal_statement` for the Orchestrator.
+        *   If ambiguous: Generates a `clarification_question` back to the user.
+3.  **OrchestratorAgent:**
+    *   Receives the `goal_statement` from WCCA.
+    *   Enters a ReAct loop:
+        *   **Reason:** Analyzes the goal, history, and previous steps to form a `thought_process` (thought, reasoning, plan).
+        *   **Act:** Decides on an `chosen_action`:
+            *   `tool_call`: Selects a tool (e.g., `WebSearchTool`, `EngineerAgent`) and its arguments.
+            *   `final_answer`: If the goal is achieved.
+        *   Executes the action (calls the tool/agent or provides the answer).
+        *   **Observe:** Gets the result/observation from the action.
+    *   Feeds the observation back into the ReAct loop.
+4.  **Tool/Specialized Agent Execution:**
+    *   If a tool is called, it executes its function.
+    *   If a specialized agent is called, it runs its own logic (potentially its own ReAct loop or simpler LLM calls) using its dedicated tools.
+5.  **Streaming Output:** Progress, thoughts, actions, and final answers are streamed back to the user.
+6.  **Memory Persistence:** All significant events, thoughts, and data are stored as `MemorySegment` objects by the `MemoryManager`.
 
 ## Development
 
-1. Create a virtual environment:
-```bash
-python -m venv venv
-.\venv\Scripts\Activate   # Windows
-# or
-source venv/bin/activate  # Linux/Mac
-```
-
-2. Install development dependencies:
-```bash
-pip install -r requirements-dev.txt
-```
-
-3. Run tests:
-```bash
-pytest
-```
+*   **Virtual Environment:** Use `venv` or Conda for managing dependencies.
+*   **Dependencies:** `pip install -r requirements-dev.txt` (if a separate dev requirements file exists).
+*   **Testing:** `pytest` (ensure tests are written/updated for v2 components).
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Please refer to `CONTRIBUTING.md` for guidelines on contributing to the project.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+1.  Fork the repository.
+2.  Create a feature branch (`git checkout -b feature/YourFeature`).
+3.  Commit your changes (`git commit -m 'Add some feature'`).
+4.  Push to the branch (`git push origin feature/YourFeature`).
+5.  Open a Pull Request.
 
 ## License
 
-[MIT License](LICENSE)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- Built on the WITS-NEXUS framework
-- Uses Sentence Transformers for vector embeddings
-- FAISS for efficient vector search
-- FastAPI for modern web interface
-- Pydantic for data validation
+-   Built upon the foundational concepts of agent-based systems and ReAct methodology.
+-   Utilizes [Sentence Transformers](https://www.sbert.net/) for generating high-quality embeddings.
+-   Leverages [FAISS](https://github.com/facebookresearch/faiss) for efficient similarity search.
+-   Powered by [FastAPI](https://fastapi.tiangolo.com/) for the web interface.
+-   Relies on [Pydantic](https://docs.pydantic.dev/) for robust data validation and settings management.
+-   Interacts with Large Language Models via [Ollama](https://ollama.ai/).
