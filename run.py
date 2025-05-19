@@ -27,7 +27,9 @@ import sys
 import time
 import logging
 from datetime import datetime
-import uvicorn # Added import for Uvicorn
+import uvicorn
+from typing import List, Dict # Added List and Dict
+import uuid # Add to imports
 
 # Ensure the project root is in sys.path to allow imports from core, agents, tools
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -40,8 +42,7 @@ from core.config import load_app_config, AppConfig
 from core.llm_interface import LLMInterface
 from core.tool_registry import ToolRegistry
 from core.memory_manager import MemoryManager
-# from core.ethics import EthicsManager # Placeholder for ethics integration
-
+from agents.wits_control_center_agent import WitsControlCenterAgent
 from agents.orchestrator_agent import OrchestratorAgent
 
 # Import specialized agents
@@ -59,17 +60,21 @@ from tools.project_file_tools import ProjectFileReaderTool
 from tools.git_tools import GitTool
 
 async def start_wits_cli(config: AppConfig):
-    # Initialize logging
-    logger = setup_logging(config.model_dump())
-    logger.info(f"Initializing {config.app_name} CLI...")
-
+    logger.info(f"Starting WITS CLI using configuration: {{config.app_name}}")
+    
     # 1. Initialize LLMInterface
-    llm_interface = LLMInterface(config)  # Pass the whole AppConfig object
+    default_temp = 0.7 # Define a default float temperature
+    if hasattr(config, 'default_temperature') and isinstance(config.default_temperature, (float, int)):
+        default_temp = float(config.default_temperature)
+    
+    llm_interface = LLMInterface(
+        model_name=config.models.default,  # Or config.models.orchestrator / planner as appropriate
+        temperature=default_temp, # Ensure this is a float
+        ollama_url=config.ollama_url,
+        request_timeout=config.ollama_request_timeout
+    )
 
-    # 2. Initialize MemoryManager
-    memory_manager = MemoryManager(config)  # Pass AppConfig
-
-    # 3. Initialize ToolRegistry and register tools
+    # 2. Initialize ToolRegistry and load tools
     tool_registry = ToolRegistry()
     
     # Register all implemented tools
@@ -112,10 +117,10 @@ async def start_wits_cli(config: AppConfig):
     
     print(f"[WITS CLI] Registered tools: {[tool.name for tool in tool_registry.get_all_tools()]}")
 
-    # 4. Initialize EthicsManager (placeholder)
-    # ethics_manager = EthicsManager(config)
+    # 3. Initialize MemoryManager
+    memory_manager = MemoryManager(config)
 
-    # 5. Initialize specialized agents
+    # 4. Initialize Specialized Agents (if any defined in config)
     
     # Initialize EngineerAgent
     engineer_tool_registry = ToolRegistry()
@@ -164,92 +169,91 @@ async def start_wits_cli(config: AppConfig):
         "researcher_agent": researcher_agent
     }
     
+    # 5. Initialize OrchestratorAgent
     orchestrator = OrchestratorAgent(
         agent_name="WITS_Orchestrator", 
         config=config,  # Pass AppConfig
         llm_interface=llm_interface, 
         memory_manager=memory_manager,
-        tool_registry=tool_registry,
-        specialized_agents=specialized_agents
+        tools=tool_registry,
+        delegation_targets=specialized_agents
         # ethics_manager=ethics_manager # Pass if orchestrator uses it directly
     )
 
-    # Log initialization of specialized agents
-    logger.info(f"Specialized agents initialized: {', '.join(specialized_agents.keys())}")
-    print(f"[WITS CLI] Specialized agents initialized: {list(specialized_agents.keys())}")
-    print(f"[WITS CLI] EngineerAgent initialized with tools: {[tool.name for tool in engineer_tool_registry.get_all_tools()]}")
+    # 6. Initialize WitsControlCenterAgent
+    wits_control_center = WitsControlCenterAgent(
+        agent_name="WitsControlCenterAgent",
+        config=config,
+        llm_interface=llm_interface,
+        memory_manager=memory_manager,
+        orchestrator_delegate=orchestrator, # Pass the orchestrator instance
+        specialized_agents=specialized_agents # Pass the dict of specialized agents
+    )
+    logger.info("WitsControlCenterAgent initialized for CLI.")
 
-    print(f"\n{config.app_name} CLI (Orchestrator Model: {config.models.orchestrator}) is ready.")
-    print("Type your goal or 'exit' to quit.")
+    current_session_id = f"cli_session_{uuid.uuid4().hex[:12]}" # Generate a unique session ID
+    logger.info(f"CLI Session ID: {current_session_id}")
+    current_conversation_history = [] # Initialize history for this session
+
+    print(f"Welcome to {config.app_name} (CLI Mode). Type 'exit' or 'quit' to end.")
+    print(f"Session ID: {current_session_id}")
 
     while True:
         try:
-            user_goal = input("WITS v2 >> ").strip()
-            if user_goal.lower() in ["exit", "quit", "shutdown"]:
+            raw_user_input = input("WITS v2 >> ").strip()
+            if raw_user_input.lower() in ["exit", "quit", "shutdown"]:
                 logger.info(f"Exiting {config.app_name} CLI.")
                 break
-            if not user_goal:
+            if not raw_user_input:
                 continue
             
-            logger.info(f"Processing goal: '{user_goal}'")
-            start_time = time.time()
+            # Add user input to the session's conversation history for WCCA context
+            # WCCA itself will save this to persistent memory with the session_id
+            current_conversation_history.append({"role": "user", "content": raw_user_input})
+
+            logger.info(f"CLI User Input for session '{current_session_id}': {{raw_user_input}}")
+
+            assistant_response_parts = []
+            async for data_packet in wits_control_center.run(
+                raw_user_input=raw_user_input,
+                conversation_history=current_conversation_history[:-1], # Pass history *before* current input
+                session_id=current_session_id
+            ):
+                if data_packet.type == "clarification_request_to_user":
+                    print(f"WITS: {data_packet.content}")
+                    assistant_response_parts.append(data_packet.content)
+                elif data_packet.type == "final_answer":
+                    print(f"WITS: {data_packet.content}")
+                    assistant_response_parts.append(data_packet.content)
+                elif data_packet.type == "info":
+                    logger.info(f"WCCA Info for session '{current_session_id}': {data_packet.content}")
+                    # Optionally print info to console if desired, e.g., for debugging
+                    # print(f"[INFO] {data_packet.content}") 
+                elif data_packet.type == "error":
+                    logger.error(f"WCCA Error for session '{current_session_id}': {data_packet.content}")
+                    print(f"[ERROR] {data_packet.content}")
+                    assistant_response_parts.append(f"[ERROR] {data_packet.content}") # Also add error to history
+                else:
+                    # Handle other stream types if necessary, or log them
+                    logger.debug(f"WCCA Stream '{data_packet.type}' for session '{current_session_id}': {data_packet.content}")
             
-            # Log debug info for goal start
-            debug_info = DebugInfo(
-                timestamp=datetime.now().isoformat(),
-                component="CLI",
-                action="process_goal",
-                details={
-                    "goal": user_goal,
-                    "orchestrator_model": config.models.orchestrator
-                },
-                duration_ms=0,
-                success=True
-            )
-            log_debug_info(logger, debug_info)
+            # After WCCA stream is complete, if there were assistant responses, add them to history
+            if assistant_response_parts:
+                full_assistant_response = " ".join(assistant_response_parts)
+                current_conversation_history.append({"role": "assistant", "content": full_assistant_response})
             
-            # The orchestrator's run method should handle the ReAct loop internally
-            final_result = await orchestrator.run(user_goal)
-            
-            # Log completion with timing
-            completion_time = (time.time() - start_time) * 1000  # ms
-            debug_info = DebugInfo(
-                timestamp=datetime.now().isoformat(),
-                component="CLI",
-                action="goal_completed",
-                details={
-                    "goal": user_goal,
-                    "result_length": len(final_result)
-                },
-                duration_ms=completion_time,
-                success=True
-            )
-            log_debug_info(logger, debug_info)
-            
-            print(f"\n[WITS CLI] Final Output:\n------------------------------------\n{final_result}\n------------------------------------")
-            logger.debug(f"Goal completed in {completion_time:.2f}ms")
+            # Optional: Trim conversation history if it gets too long for WCCA prompt context
+            # MAX_HISTORY_TURNS_FOR_WCCA_PROMPT = 5 # Example limit (5 pairs of user/assistant)
+            # if len(current_conversation_history) > MAX_HISTORY_TURNS_FOR_WCCA_PROMPT * 2:
+            #     current_conversation_history = current_conversation_history[-(MAX_HISTORY_TURNS_FOR_WCCA_PROMPT*2):]
+
 
         except KeyboardInterrupt:
-            logger.warning(f"Exiting {config.app_name} CLI due to user interrupt.")
+            print("\nExiting WITS CLI (Keyboard Interrupt). Goodbye!")
             break
         except Exception as e:
-            error_msg = f"An unexpected error occurred: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            
-            # Log error details
-            debug_info = DebugInfo(
-                timestamp=datetime.now().isoformat(),
-                component="CLI",
-                action="goal_error",
-                details={
-                    "goal": user_goal,
-                    "error_type": type(e).__name__
-                },
-                duration_ms=(time.time() - start_time) * 1000,
-                success=False,
-                error=str(e)
-            )
-            log_debug_info(logger, debug_info)
+            logger.exception(f"An unexpected error occurred in WITS CLI loop for session '{current_session_id}': {e}")
+            print(f"An unexpected error occurred: {e}")
 
 def start_wits_web_app(config: AppConfig):
     print("Starting WITS-NEXUS v2 Web App...")

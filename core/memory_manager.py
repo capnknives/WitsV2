@@ -16,7 +16,7 @@ import torch
 
 from .debug_utils import log_execution_time, log_async_execution_time, DebugInfo, log_debug_info, PerformanceMonitor
 from .faiss_utils import initialize_gpu_resources, create_gpu_index, add_vectors, search_vectors
-from .schemas import MemorySegment, MemorySegmentContent
+from .schemas import MemorySegment, MemorySegmentContent # Ensure schemas are imported
 
 # Initialize GPU resources
 try:
@@ -360,5 +360,49 @@ class MemoryManager:
                 success=True # Assuming search itself doesn't fail here
             ))
         return final_results
+
+    async def add_memory_segment(self, segment: MemorySegment):
+        """Adds a new memory segment to the list and persists to file."""
+        # Ensure metadata is handled correctly if it wasn't explicitly before
+        # The MemorySegment model itself handles the metadata field, so direct assignment is fine.
+        
+        self.segments.append(segment)
+        self.logger.debug(f"Added memory segment (ID: {segment.id}, Type: {segment.type}, Source: {segment.source}, Session: {segment.metadata.get('session_id')})")
+        await self._save_to_disk()
+        # ... (existing logic for FAISS if applicable) ...
+
+    async def get_history_for_session(self, session_id: str, limit: int = 20) -> List[Dict[str, str]]:
+        """
+        Retrieves conversation history for a given session_id, ordered by timestamp.
+        Filters for segments that have a 'role' in their metadata.
+        """
+        self.logger.debug(f"Retrieving history for session_id: {session_id} with limit: {limit}")
+        session_segments = []
+        for segment in self.segments:
+            if segment.metadata and segment.metadata.get("session_id") == session_id:
+                # We are looking for segments that represent conversational turns
+                # These should have a 'role' (user/assistant) and 'text' content
+                role = segment.metadata.get("role")
+                if role and segment.content and segment.content.text:
+                    session_segments.append(
+                        {
+                            "role": role,
+                            "content": segment.content.text,
+                            "timestamp": segment.timestamp # Keep timestamp for sorting
+                        }
+                    )
+        
+        # Sort by timestamp (datetime objects)
+        session_segments.sort(key=lambda x: x["timestamp"])
+        
+        # Remove timestamp and take the most recent 'limit' turns
+        formatted_history = [{"role": s["role"], "content": s["content"]} for s in session_segments]
+        
+        if len(formatted_history) > limit:
+            self.logger.debug(f"History for session '{session_id}' exceeds limit {limit}, trimming to most recent {limit} turns.")
+            return formatted_history[-limit:]
+        
+        self.logger.info(f"Retrieved {len(formatted_history)} history turns for session_id: {session_id}")
+        return formatted_history
 
     # ... (other methods like goal management, pruning, etc. would go here)

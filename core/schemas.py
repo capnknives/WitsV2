@@ -54,3 +54,22 @@ class OrchestratorLLMResponse(BaseModel):
     """Structured response expected from the Orchestrator's LLM after its reasoning step."""
     thought_process: OrchestratorThought
     chosen_action: OrchestratorAction
+
+class StreamData(BaseModel):
+    type: str # e.g., "info", "error", "llm_thought", "tool_call", "tool_result", "final_answer", "clarification_request_to_user"
+    content: Any
+    tool_name: Optional[str] = None
+    tool_args: Optional[Dict[str, Any]] = None
+    iteration: Optional[int] = None
+    max_iterations: Optional[int] = None
+    # For thoughts
+    reasoning: Optional[str] = None
+    plan: Optional[List[str]] = None
+    # For errors
+    error_details: Optional[str] = None
+    # For WCCA specific stream types
+    goal_statement: Optional[str] = None # When goal is defined
+    clarification_question: Optional[str] = None # When clarification is needed by WCCA
+
+    class Config:
+        arbitrary_types_allowed = True

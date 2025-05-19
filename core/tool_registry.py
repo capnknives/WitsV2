@@ -1,20 +1,12 @@
 # core/tool_registry.py
 """Tool registry for managing and accessing tools."""
-from typing import Dict, Any, Optional, List, Protocol, Union, runtime_checkable
+from typing import Dict, Any, Optional, List, Union
 import logging
 import json
 from datetime import datetime
 
 from .debug_utils import DebugInfo, log_debug_info
-
-@runtime_checkable
-class Tool(Protocol):
-    """Protocol defining what a tool must implement."""
-    name: str
-    description: Optional[str]
-    
-    def get_llm_schema(self) -> Dict[str, Any]: ...
-
+from tools.base_tool import BaseTool
 
 class ToolRegistry:
     """Registry for managing and using tools."""
@@ -29,13 +21,13 @@ class ToolRegistry:
                 self.config = config.dict()
         
         # Initialize core components
-        self.tools: Dict[str, Tool] = {}
+        self.tools: Dict[str, BaseTool] = {}
         self.logger = logging.getLogger('WITS.ToolRegistry')
     
-    def register_tool(self, tool_instance: Tool) -> None:
+    def register_tool(self, tool_instance: BaseTool) -> None:
         """Register a tool with the registry."""
-        if not isinstance(tool_instance, Tool):
-            raise TypeError(f"Tool must be an instance of Tool, got {type(tool_instance)}")
+        if not isinstance(tool_instance, BaseTool):
+            raise TypeError(f"Tool must be an instance of BaseTool, got {type(tool_instance)}")
         
         try:
             if tool_instance.name in self.tools:
@@ -50,7 +42,6 @@ class ToolRegistry:
                 action="register_tool",
                 details={
                     "tool_name": tool_instance.name,
-                    "overwritten": tool_instance.name in self.tools,
                     "total_tools": len(self.tools)
                 },
                 duration_ms=0,
@@ -61,10 +52,10 @@ class ToolRegistry:
             self.logger.info(f"Tool '{tool_instance.name}' registered successfully.")
             
         except Exception as e:
-            self.logger.error(f"Error registering tool '{tool_instance.name}': {e}")
+            self.logger.error(f"Error registering tool '{getattr(tool_instance, 'name', 'UNKNOWN')}' : {e}")
             raise
     
-    def get_tool(self, tool_name: str) -> Optional[Tool]:
+    def get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """Get a tool by name."""
         try:
             tool = self.tools.get(tool_name)
@@ -88,7 +79,7 @@ class ToolRegistry:
             self.logger.error(f"Error retrieving tool '{tool_name}': {e}")
             raise
     
-    def get_all_tools(self) -> List[Tool]:
+    def get_all_tools(self) -> List[BaseTool]:
         """Get all registered tools."""
         return list(self.tools.values())
     

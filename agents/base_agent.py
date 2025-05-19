@@ -1,7 +1,7 @@
 # filepath: c:\WITS\wits_nexus_v2\agents\base_agent.py.new
 # agents/base_agent.py
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List # Added List for get_available_tools
 # from core.config import AppConfig # If passing full config object
 # from core.llm_interface import LLMInterface
 # from core.memory_manager import MemoryManager
@@ -23,7 +23,7 @@ class BaseAgent(ABC):
             model_name = full_config.llm_model_name
             return {"model_name": model_name}
             
-        # Handle case when it's the full AppConfig
+        # Handle case when it\'s the full AppConfig
         if hasattr(full_config, "models"):
             agent_model_key = self.agent_name.lower().replace("_agent", "") # e.g. orchestrator_agent -> orchestrator
             model_name = getattr(full_config.models, agent_model_key, full_config.models.default)
@@ -34,9 +34,19 @@ class BaseAgent(ABC):
 
 
     @abstractmethod
-    async def run(self, user_input_or_task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def run(self, user_input_or_task: str, context: Optional[Dict[str, Any]] = None) -> Any: # Changed return type to Any for more flexibility with AsyncGenerator
         """Main execution method for the agent."""
         pass
 
     def get_name(self) -> str:
         return self.agent_name
+
+    def get_description(self) -> str:
+        """Returns a description of the agent's capabilities."""
+        return f"This is the {self.agent_name}. It can perform general tasks."
+
+    def get_available_tools(self) -> List[Dict[str, Any]]:
+        """Returns a list of tools/capabilities the agent offers, for LLM prompting."""
+        # Base agents might not have specific "tools" in the same way an orchestrator does.
+        # This can be overridden by subclasses if they expose distinct functionalities.
+        return []

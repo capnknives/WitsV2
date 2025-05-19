@@ -4,7 +4,7 @@ import logging.handlers
 import os
 import sys
 from datetime import datetime
-from typing import Optional, Dict, Any, Callable, TypeVar, Union, Awaitable
+from typing import Optional, Dict, Any, Callable, TypeVar, Union, Awaitable, AsyncGenerator, overload, cast
 from typing_extensions import ParamSpec
 from functools import wraps
 import time
@@ -12,14 +12,21 @@ import json
 import traceback
 from pathlib import Path
 from pydantic import BaseModel
+import inspect
 
 # Type variable for decorators
 P = ParamSpec('P')
 R = TypeVar('R')
 F = TypeVar('F', bound=Callable[..., Any])
+YT = TypeVar('YT') # Yield type for AsyncGenerator
 
 # Helper type alias for async functions
 AsyncCallable = Callable[P, Awaitable[R]]
+AsyncGeneratorCallable = Callable[P, AsyncGenerator[YT, None]]
+
+# Type variable that can represent either an AsyncCallable or AsyncGeneratorCallable
+F_async_flexible = TypeVar('F_async_flexible', bound=Callable[..., Union[Awaitable[Any], AsyncGenerator[Any, None]]])
+
 
 class DebugInfo(BaseModel):
     """Structured debug information for all components."""
@@ -208,59 +215,122 @@ def log_execution_time(logger: logging.Logger):
         return wrapper
     return decorator
 
-def log_async_execution_time(logger: logging.Logger):
+@overload
+def log_async_execution_time(logger: logging.Logger) -> Callable[[AsyncGeneratorCallable[P, YT]], AsyncGeneratorCallable[P, YT]]: ...
+
+@overload
+def log_async_execution_time(logger: logging.Logger) -> Callable[[AsyncCallable[P, R]], AsyncCallable[P, R]]: ...
+
+def log_async_execution_time(logger: logging.Logger) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
     """
-    Decorator to log execution time of async functions with structured debug info.
+    Decorator to log execution time of async functions and async generators
+    with structured debug info.
     
     Usage:
     @log_async_execution_time(logger)
-    async def my_async_function():
+    async def my_async_function(): # or async def my_async_generator():
         ...
     """
-    def decorator(func: AsyncCallable[P, R]) -> AsyncCallable[P, R]:
-        @wraps(func)
-        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            start_time = time.time()
+    def decorator(func: Callable[P, Any]) -> Callable[P, Any]:
+        func_module = getattr(func, '__module__', 'unknown_module')
+        func_name = getattr(func, '__name__', 'unknown_action')
+
+        if inspect.isasyncgenfunction(func):
+            # The func is an async generator function.
+            # The overload ensures that YT is correctly inferred by the caller.
+            # The wrapper itself can be typed with AsyncGenerator[Any, None]
+            # as the specific yield type YT is handled by the overload.
             
-            try:
-                result = await func(*args, **kwargs)
-                execution_time = (time.time() - start_time) * 1000  # Convert to ms
-                
-                debug_info = DebugInfo(
-                    timestamp=datetime.now().isoformat(),
-                    component=func.__module__ or 'unknown',
-                    action=func.__name__,
-                    details={
-                        'args': str(args) if args else None,
-                        'kwargs': str(kwargs) if kwargs else None,
-                        'is_async': True
-                    },
-                    duration_ms=execution_time,
-                    success=True
-                )
-                log_debug_info(logger, debug_info)
-                
-                return result
-                
-            except Exception as e:
-                execution_time = (time.time() - start_time) * 1000
-                debug_info = DebugInfo(
-                    timestamp=datetime.now().isoformat(),
-                    component=func.__module__ or 'unknown',
-                    action=func.__name__,
-                    details={
-                        'args': str(args) if args else None,
-                        'kwargs': str(kwargs) if kwargs else None,
-                        'is_async': True,
-                        'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
-                    },
-                    duration_ms=execution_time,
-                    success=False,
-                    error=str(e)
-                )
-                log_debug_info(logger, debug_info)
-                raise
-                
-        return wrapper
+            @wraps(func) # Pass the original func to wraps
+            async def async_gen_wrapper(*args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[Any, None]: # Use Any for yield type here
+                start_time = time.time()
+                try:
+                    # Call the original function (which is an async generator)
+                    # The type of func here is Callable[P, AsyncGenerator[Any, None]] due to isasyncgenfunction check
+                    # but we cast it to be explicit for the call.
+                    async_gen_func = cast(Callable[P, AsyncGenerator[Any, None]], func)
+                    async for item in async_gen_func(*args, **kwargs):
+                        yield item
+                    
+                    execution_time = (time.time() - start_time) * 1000
+                    debug_info = DebugInfo(
+                        timestamp=datetime.now().isoformat(),
+                        component=func_module,
+                        action=func_name,
+                        details={
+                            'args': str(args)[:500] if args else None,
+                            'kwargs': str(kwargs)[:500] if kwargs else None,
+                            'is_async_gen': True
+                        },
+                        duration_ms=execution_time,
+                        success=True
+                    )
+                    log_debug_info(logger, debug_info)
+                except Exception as e:
+                    execution_time = (time.time() - start_time) * 1000
+                    debug_info = DebugInfo(
+                        timestamp=datetime.now().isoformat(),
+                        component=func_module,
+                        action=func_name,
+                        details={
+                            'args': str(args)[:500] if args else None,
+                            'kwargs': str(kwargs)[:500] if kwargs else None,
+                            'is_async_gen': True,
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()[:2000]
+                        },
+                        duration_ms=execution_time,
+                        success=False,
+                        error=str(e)
+                    )
+                    log_debug_info(logger, debug_info)
+                    raise
+            return async_gen_wrapper
+        else:
+            # The func is a regular async function (returns an Awaitable).
+            # The overload ensures R is correctly inferred by the caller.
+            # The wrapper itself can be typed with Awaitable[Any] or async def ... -> Any.
+            @wraps(func) # Pass the original func to wraps
+            async def awaitable_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any: # Use Any for return type here
+                start_time = time.time()
+                try:
+                    # Call the original async function.
+                    # The type of func here is Callable[P, Awaitable[Any]]
+                    async_awaitable_func = cast(Callable[P, Awaitable[Any]], func)
+                    result = await async_awaitable_func(*args, **kwargs)
+                    execution_time = (time.time() - start_time) * 1000
+                    debug_info = DebugInfo(
+                        timestamp=datetime.now().isoformat(),
+                        component=func_module,
+                        action=func_name,
+                        details={
+                            'args': str(args)[:500] if args else None,
+                            'kwargs': str(kwargs)[:500] if kwargs else None,
+                            'is_async_gen': False
+                        },
+                        duration_ms=execution_time,
+                        success=True
+                    )
+                    log_debug_info(logger, debug_info)
+                    return result
+                except Exception as e:
+                    execution_time = (time.time() - start_time) * 1000
+                    debug_info = DebugInfo(
+                        timestamp=datetime.now().isoformat(),
+                        component=func_module,
+                        action=func_name,
+                        details={
+                            'args': str(args)[:500] if args else None,
+                            'kwargs': str(kwargs)[:500] if kwargs else None,
+                            'is_async_gen': False,
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()[:2000]
+                        },
+                        duration_ms=execution_time,
+                        success=False,
+                        error=str(e)
+                    )
+                    log_debug_info(logger, debug_info)
+                    raise
+            return awaitable_wrapper
     return decorator
