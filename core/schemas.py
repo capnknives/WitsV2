@@ -73,3 +73,26 @@ class StreamData(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+# Book Project Schemas
+class BookProjectBase(BaseModel):
+    project_name: str
+    description: Optional[str] = None
+    genre: Optional[str] = None
+    # Add other relevant fields for a book project
+
+class BookProjectCreate(BookProjectBase):
+    pass
+
+class BookProjectUpdate(BookProjectBase):
+    project_name: Optional[str] = None # Allow partial updates
+
+class BookProject(BookProjectBase):
+    id: str # Typically the project_name or a slugified version
+    created_at: datetime = Field(default_factory=datetime.now)
+    last_modified_at: datetime = Field(default_factory=datetime.now)
+    # story_elements: Optional[Dict[str, Any]] = Field(default_factory=dict) # For dashboard content
+
+    class Config:
+        orm_mode = True # if using with an ORM
+        arbitrary_types_allowed = True

@@ -4,37 +4,46 @@ import json
 import logging
 import time
 import re
+import uuid
 from typing import AsyncGenerator, List, Dict, Any, Optional, Union
 from pydantic import ValidationError # Added for handling Pydantic validation errors
+from datetime import datetime # Added for consistent timestamping
 
 from agents.base_agent import BaseAgent
 from core.config import AppConfig
 from core.llm_interface import LLMInterface
 from core.memory_manager import MemoryManager, MemorySegment
 from core.schemas import LLMToolCall, OrchestratorLLMResponse, OrchestratorThought, OrchestratorAction, MemorySegmentContent, StreamData
+from core.tool_registry import ToolRegistry # Import ToolRegistry
+from .book_writing_schemas import BookWritingState # Simplified import
+from core.schemas import StreamData # Ensure StreamData is imported
+
 from agents.book_writing_schemas import BookWritingState, ChapterOutlineSchema, CharacterProfileSchema, WorldAnvilSchema, ChapterProseSchema
 from core.debug_utils import log_async_execution_time
 
 class OrchestratorAgent(BaseAgent):
     def __init__(self,
                  agent_name: str,
-                 config: AppConfig,
+                 config: Any,  # Changed from AppConfig to Any to accept AgentProfileConfig
                  llm_interface: LLMInterface,
                  memory_manager: MemoryManager,
                  delegation_targets: Dict[str, BaseAgent],
+                 tool_registry: Optional[ToolRegistry] = None,
                  max_iterations: int = 10):
-        super().__init__(agent_name, config, llm_interface, memory_manager)
-        self.delegation_targets = delegation_targets
+        super().__init__(agent_name, config, llm_interface, memory_manager, tool_registry=tool_registry)
+        self.delegation_targets = delegation_targets if delegation_targets else {}
         self.max_iterations = max_iterations
         self.logger = logging.getLogger(f"WITS.{self.__class__.__name__}")
         self.final_answer_tool_name = "FinalAnswerTool"
-        self.orchestrator_model_name = getattr(config.models, 'orchestrator', config.models.default)
-        self.logger.info(f"OrchestratorAgent initialized. Model: {self.orchestrator_model_name}, Max iterations: {self.max_iterations}")
+        self.is_book_writing_mode = False
+        self.book_writing_state = None
+        self.current_project_name = None
+        
+        # Use the model name from llm_interface
+        self.orchestrator_model_name = llm_interface.model_name        # Initialize the orchestrator with the model from llm_interface
+        self.logger.info(f"OrchestratorAgent initialized. It will use LLM model: {self.orchestrator_model_name} from its LLMInterface. Max iterations: {self.max_iterations}")
         self.logger.info(f"Delegation targets: {list(self.delegation_targets.keys())}")
         self.logger.info(f"Final answer tool configured as: {self.final_answer_tool_name}")
-        self.is_book_writing_mode = False
-        self.book_writing_state: Optional[BookWritingState] = None
-        self.current_project_name: Optional[str] = None
 
     def _extract_project_name(self, user_goal: str, context: Dict[str, Any]) -> Optional[str]:
         if "project_name" in context and context["project_name"]:
@@ -42,14 +51,18 @@ class OrchestratorAgent(BaseAgent):
             return str(context["project_name"])
 
         patterns = [
-            r"(?:project named|book named|novel named|story named|project|book|novel|story)\\s+['\\\"]([^'\\\"]+)['\\\"]",
-            r"create a new book titled\\s+['\\\"]([^'\\\"]+)['\\\"]",
-            r"start book\\s+['\\\"]([^'\\\"]+)['\\\"]"
+            r"(?:project named|book named|novel named|story named|project|book|novel|story)\s+(?:\*\*)?['\"]([^'\"\*]+)['\"](?:\*\*)?",
+            r"create a new book titled\s+(?:\*\*)?['\"]([^'\"\*]+)['\"](?:\*\*)?",
+            r"start book\s+(?:\*\*)?['\"]([^'\"\*]+)['\"](?:\*\*)?",
+            r"create a new book project titled\s+(?:\*\*)?['\"]([^'\"\*]+)['\"](?:\*\*)?",
+            r"create a new book project named\s+(?:\*\*)?['\"]([^'\"\*]+)['\"](?:\*\*)?"
         ]
         for pattern in patterns:
             match = re.search(pattern, user_goal, re.IGNORECASE)
             if match:
                 project_name = match.group(1).strip()
+                if project_name.endswith('**'):
+                    project_name = project_name[:-2].strip()
                 if project_name:
                     self.logger.debug(f"Extracted project_name '{project_name}' from user_goal using pattern: {pattern}")
                     return project_name
@@ -60,11 +73,29 @@ class OrchestratorAgent(BaseAgent):
     def _get_agent_descriptions_for_prompt(self) -> str:
         descriptions = []
         for name, agent in self.delegation_targets.items():
-            description = agent.get_description() if hasattr(agent, 'get_description') and callable(agent.get_description) else f"No specific description available for {name}."
-            descriptions.append(f'- Agent Name: "{name}"\\n  Description: {description}')
+            # Try to get description from agent's config first
+            config = getattr(agent, 'config_full', None)
+            if config and hasattr(config, 'display_name') and hasattr(config, 'description'):
+                display_name = config.display_name
+                description = config.description
+            else:
+                # Fallback to get_description or default
+                display_name = name
+                description = agent.get_description() if hasattr(agent, 'get_description') and callable(agent.get_description) else f"No specific description available for {name}."
+            
+            descriptions.append(f'- Tool Name: "{name}"\n  Display Name: "{display_name}"\n  Description: {description}')
         
-        descriptions.append(f'- Tool Name: "{self.final_answer_tool_name}"\\n  Description: Use this tool to provide the final answer directly to the user when the goal has been fully achieved and no more actions are needed.')
-        return "\\n".join(descriptions)
+        if self.is_book_writing_mode:
+            descriptions.extend([
+                '- Tool Name: "book_plotter"\n  Description: Manages plot and chapter outlines for book writing projects.',
+                '- Tool Name: "book_character_dev"\n  Description: Handles character development and profiles.',
+                '- Tool Name: "book_worldbuilder"\n  Description: Creates the setting, lore, and rules of fictional worlds.',
+                '- Tool Name: "book_prose_generator"\n  Description: Writes the actual narrative, dialogue, and descriptions.',
+                '- Tool Name: "book_editor"\n  Description: Reviews and refines generated book content.'
+            ])
+
+        descriptions.append(f'- Tool Name: "{self.final_answer_tool_name}"\n  Description: Use this tool to provide the final answer directly to the user when the goal has been fully achieved and no more actions are needed.')
+        return "\n".join(descriptions)
 
     def _build_llm_prompt(self, user_goal: str, conversation_history: List[Dict[str, str]], previous_steps: List[Dict[str, Any]]) -> str:
         history_str = "\\n".join([f"{turn['role']}: {turn['content']}" for turn in conversation_history])
@@ -248,7 +279,23 @@ JSON Response:
             if llm_response_str.endswith("```"):
                 llm_response_str = llm_response_str[:-len("```")].strip()
 
+            # Fix any problematic escape characters in JSON string
+            # Convert \' to ' in the JSON string to avoid invalid escape sequences
+            llm_response_str = llm_response_str.replace("\\'", "'")
             llm_json = json.loads(llm_response_str)
+            
+            # Check for project_name_extracted in LLM response
+            if "project_name_extracted" in llm_json and llm_json["project_name_extracted"]:
+                extracted_project_name = llm_json["project_name_extracted"]
+                self.logger.info(f"Found project_name_extracted in LLM response: '{extracted_project_name}'")
+                
+                # Update agent state if we're in book writing mode but project name isn't set
+                if self.is_book_writing_mode and not self.current_project_name:
+                    self.current_project_name = extracted_project_name
+                    # Only create BookWritingState if we have a valid project name
+                    if extracted_project_name and not self.book_writing_state:
+                        self.book_writing_state = BookWritingState(project_name=extracted_project_name)
+                        self.logger.info(f"Initialized BookWritingState with project name from LLM response: '{extracted_project_name}'")
             
             thought_data = llm_json.get("thought_process")
             action_data = llm_json.get("chosen_action")
@@ -324,45 +371,53 @@ JSON Response:
             if self.is_book_writing_mode and self.book_writing_state and agent_name.startswith("book_"):
                 agent_specific_state_slice = {}
                 if agent_name == "book_plotter":
-                    agent_specific_state_slice["overall_plot_summary"] = self.book_writing_state.overall_plot_summary
-                    agent_specific_state_slice["character_profiles"] = [p.model_dump() for p in self.book_writing_state.character_profiles]
-                    agent_specific_state_slice["detailed_chapter_outlines"] = [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines]
+                    agent_specific_state_slice = {
+                        "overall_plot_summary": self.book_writing_state.overall_plot_summary,
+                        "character_profiles": [p.model_dump() for p in self.book_writing_state.character_profiles],
+                        "detailed_chapter_outlines": [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines]
+                    }
                 elif agent_name == "book_character_dev":
-                    agent_specific_state_slice["overall_plot_summary"] = self.book_writing_state.overall_plot_summary
-                    agent_specific_state_slice["character_profiles"] = [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    agent_specific_state_slice = {
+                        "overall_plot_summary": self.book_writing_state.overall_plot_summary,
+                        "character_profiles": [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    }
                 elif agent_name == "book_worldbuilder":
                     if self.book_writing_state.world_building_notes:
                         agent_specific_state_slice["world_building_notes"] = self.book_writing_state.world_building_notes.model_dump()
                     else:
-                        agent_specific_state_slice["world_building_notes"] = WorldAnvilSchema().model_dump() # Pass empty structure
+                        agent_specific_state_slice["world_building_notes"] = WorldAnvilSchema().model_dump()
                 elif agent_name == "book_prose_generator":
-                    agent_specific_state_slice["overall_plot_summary"] = self.book_writing_state.overall_plot_summary
-                    agent_specific_state_slice["detailed_chapter_outlines"] = [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines]
-                    agent_specific_state_slice["character_profiles"] = [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    agent_specific_state_slice = {
+                        "overall_plot_summary": self.book_writing_state.overall_plot_summary,
+                        "detailed_chapter_outlines": [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines],
+                        "character_profiles": [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    }
                     if self.book_writing_state.world_building_notes:
                         agent_specific_state_slice["world_building_notes"] = self.book_writing_state.world_building_notes.model_dump()
                     if self.book_writing_state.writing_style_guide:
-                         agent_specific_state_slice["writing_style_guide"] = self.book_writing_state.writing_style_guide
+                        agent_specific_state_slice["writing_style_guide"] = self.book_writing_state.writing_style_guide
                     if self.book_writing_state.tone_guide:
-                         agent_specific_state_slice["tone_guide"] = self.book_writing_state.tone_guide
+                        agent_specific_state_slice["tone_guide"] = self.book_writing_state.tone_guide
                 elif agent_name == "book_editor":
-                    agent_specific_state_slice["generated_prose"] = {k: v.model_dump() for k, v in self.book_writing_state.generated_prose.items()}
-                    agent_specific_state_slice["detailed_chapter_outlines"] = [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines]
-                    agent_specific_state_slice["character_profiles"] = [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    agent_specific_state_slice = {
+                        "generated_prose": {k: v.model_dump() for k, v in self.book_writing_state.generated_prose.items()},
+                        "detailed_chapter_outlines": [o.model_dump() for o in self.book_writing_state.detailed_chapter_outlines],
+                        "character_profiles": [p.model_dump() for p in self.book_writing_state.character_profiles]
+                    }
                     if self.book_writing_state.world_building_notes:
                         agent_specific_state_slice["world_building_notes"] = self.book_writing_state.world_building_notes.model_dump()
                     if self.book_writing_state.writing_style_guide:
-                         agent_specific_state_slice["writing_style_guide"] = self.book_writing_state.writing_style_guide
+                        agent_specific_state_slice["writing_style_guide"] = self.book_writing_state.writing_style_guide
                     if self.book_writing_state.tone_guide:
-                         agent_specific_state_slice["tone_guide"] = self.book_writing_state.tone_guide
+                        agent_specific_state_slice["tone_guide"] = self.book_writing_state.tone_guide
                     agent_specific_state_slice["revision_notes"] = self.book_writing_state.revision_notes
 
-                if agent_specific_state_slice: # Only add if not empty
-                     delegation_context["book_writing_state_slice"] = agent_specific_state_slice # This is the key agents should look for
-                     self.logger.info(f"Passing book_writing_state_slice to {agent_name} with keys: {list(agent_specific_state_slice.keys())}")
+                if agent_specific_state_slice:
+                    delegation_context["book_writing_state_slice"] = agent_specific_state_slice
+                    self.logger.info(f"Passing book_writing_state_slice to {agent_name} with keys: {list(agent_specific_state_slice.keys())}")
                 else:
                     self.logger.info(f"No specific book_writing_state_slice prepared for {agent_name}, or agent is not a book agent.")
-
+            
             yield StreamData(type="info", content=f"Delegating to {agent_name} with goal: {goal}", tool_name=agent_name, tool_args={"goal": goal}, iteration=context.get("delegator_iteration"))
             
             delegation_context["session_id"] = session_id 
@@ -370,454 +425,340 @@ JSON Response:
 
             full_response_content = ""
             try:
-                agent_run_output = await delegate_agent.run(user_input_or_task=goal, context=delegation_context)
-                
+                agent_response_stream = delegate_agent.run(task_description=goal, context=delegation_context)
                 last_yielded_stream_data: Optional[StreamData] = None
 
-                if isinstance(agent_run_output, AsyncGenerator):
-                    async for response_chunk in agent_run_output:
-                        if response_chunk.iteration is None:
-                            response_chunk.iteration = context.get("delegator_iteration")
-                        yield response_chunk 
-                        last_yielded_stream_data = response_chunk
-                        if response_chunk.type == "final_answer" or response_chunk.type == "content" or response_chunk.type == "tool_response":
-                            if isinstance(response_chunk.content, str):
-                                full_response_content += response_chunk.content + "\\n"
-                            elif isinstance(response_chunk.content, dict): # Agent might return structured JSON directly
-                                 full_response_content += json.dumps(response_chunk.content) + "\\n"
-                elif isinstance(agent_run_output, StreamData):
-                    yield agent_run_output
-                    last_yielded_stream_data = agent_run_output
-                    if agent_run_output.content and isinstance(agent_run_output.content, str):
-                        full_response_content = agent_run_output.content
-                    elif agent_run_output.content: # Could be dict
-                        full_response_content = json.dumps(agent_run_output.content)
-                elif isinstance(agent_run_output, str): # Direct string return
-                    full_response_content = agent_run_output
-                    stream_data_out = StreamData(type="content", content=agent_run_output, tool_name=agent_name, iteration=context.get("delegator_iteration"))
-                    yield stream_data_out
-                    last_yielded_stream_data = stream_data_out
-                elif agent_run_output is not None: 
-                    full_response_content = json.dumps(agent_run_output) # Assume it's JSON serializable if not str/StreamData
-                    stream_data_out = StreamData(type="content", content=full_response_content, tool_name=agent_name, iteration=context.get("delegator_iteration"))
-                    yield stream_data_out
-                    last_yielded_stream_data = stream_data_out
+                # Handle async generators
+                if hasattr(agent_response_stream, '__aiter__'):
+                    try:
+                        async for response_chunk in agent_response_stream:
+                            if not isinstance(response_chunk, StreamData):
+                                self.logger.warning(f"Agent {agent_name} yielded non-StreamData object: {type(response_chunk)}. Skipping.")
+                                continue
+                            if response_chunk.iteration is None:
+                                response_chunk.iteration = context.get("delegator_iteration")
+                            yield response_chunk 
+                            last_yielded_stream_data = response_chunk
+                            if response_chunk.type in ["final_answer", "content", "tool_response"]:
+                                if isinstance(response_chunk.content, str):
+                                    full_response_content += response_chunk.content + "\n"
+                                elif isinstance(response_chunk.content, dict): 
+                                    full_response_content += json.dumps(response_chunk.content) + "\n"
+                    except Exception as stream_error:
+                        error_msg = f"Error processing stream from agent {agent_name}: {str(stream_error)}"
+                        self.logger.exception(error_msg)
+                        yield StreamData(
+                            type="error",
+                            content=error_msg,
+                            tool_name=agent_name,
+                            error_details=str(stream_error),
+                            iteration=context.get("delegator_iteration")
+                        )
+                        return
+                else:
+                    # Handle coroutines and other response types
+                    try:
+                        agent_response = await agent_response_stream
+                        if isinstance(agent_response, StreamData):
+                            yield agent_response
+                            last_yielded_stream_data = agent_response
+                            if agent_response.content:
+                                full_response_content = str(agent_response.content)
+                        else:
+                            response_content = str(agent_response) if agent_response else "No explicit content returned"
+                            stream_data = StreamData(
+                                type="content", 
+                                content=response_content, 
+                                tool_name=agent_name, 
+                                iteration=context.get("delegator_iteration")
+                            )
+                            yield stream_data
+                            last_yielded_stream_data = stream_data
+                            full_response_content = response_content
+                    except Exception as response_error:
+                        error_msg = f"Error processing response from agent {agent_name}: {str(response_error)}"
+                        self.logger.exception(error_msg)
+                        yield StreamData(
+                            type="error",
+                            content=error_msg,
+                            tool_name=agent_name,
+                            error_details=str(response_error),
+                            iteration=context.get("delegator_iteration")
+                        )
+                        return
 
+                # Ensure we have a final response
                 trimmed_response = full_response_content.strip()
                 if not trimmed_response:
                     trimmed_response = f"Agent {agent_name} completed its task but returned no explicit content."
-                    self.logger.warning(f"Agent {agent_name} returned no explicit content for session \\'{session_id}\\' on goal: {goal}")
+                    self.logger.warning(f"Agent {agent_name} returned no explicit content for session '{session_id}' on goal: {goal}")
                 
-                if not last_yielded_stream_data or last_yielded_stream_data.type not in ["tool_response", "final_answer"]:
-                    yield StreamData(type="tool_response", content=trimmed_response, tool_name=agent_name, iteration=context.get("delegator_iteration"))
-                self.logger.info(f"Agent \\'{agent_name}\\' completed for session \\'{session_id}\\'. Accumulated response length: {len(trimmed_response)}")
-
-            except Exception as e:
-                self.logger.exception(f"Error during delegation to agent \\'{agent_name}\\' for session \\'{session_id}\\': {e}")
-                yield StreamData(type="tool_response", content=f"Error executing {agent_name}: {str(e)}", tool_name=agent_name, error_details=str(e), iteration=context.get("delegator_iteration"))
-        else:
-            self.logger.error(f"Attempted to delegate to unknown agent \\'{agent_name}\\' for session \\'{session_id}\\'.")
-            yield StreamData(type="tool_response", content=f"Error: Agent {agent_name} not found.", tool_name=agent_name, error_details=f"Agent {agent_name} not found.", iteration=context.get("delegator_iteration"))
-
-    @log_async_execution_time(logging.getLogger(f"WITS.OrchestratorAgent.run"))
-    async def run(self, user_goal: str, context: Dict[str, Any]) -> AsyncGenerator[StreamData, None]:
-        session_id = context.get("session_id", f"orch_run_fallback_{time.time_ns()}")
-        self.logger.info(f"Orchestrator starting for session '{session_id}'. Goal: {user_goal}")
-
-        # Determine book writing mode and project name early
-        if "book" in user_goal.lower() or "novel" in user_goal.lower() or "story" in user_goal.lower() or ("project_name" in context and context.get("is_book_project")):
-            self.is_book_writing_mode = True
-            # Try to get project_name from context first (e.g., if UI sends it for an existing project)
-            self.current_project_name = context.get("project_name")
-            if not self.current_project_name:
-                 self.current_project_name = self._extract_project_name(user_goal, context) # Fallback to goal extraction
-            
-            if not self.current_project_name:
-                 self.logger.warning(f"Book writing mode detected, but no project name found in goal or context: {user_goal}")
-                 yield StreamData(type="final_answer", content="To work on a book, please specify a project name. For example: \\\"Create a new book project named 'My Awesome Novel'\\\" or \\\"Load book project 'My Existing Work'\\\".", iteration=0)
-                 return 
-
-            book_state_memory_key = f"book_project_{self.current_project_name.replace(' ', '_').lower()}"
-            self.logger.info(f"Book writing mode enabled. Project: '{self.current_project_name}'. Memory key: {book_state_memory_key}")
-            
-            loaded_successfully = False
-            try:
-                # Use MemoryManager's search_memory with metadata filter
-                # Assuming search_memory can filter by a unique 'key' in metadata
-                retrieved_segments = self.memory.search_memory(
-                    query=book_state_memory_key, # Query using the specific key
-                    k=5, # Retrieve a few candidates in case of similar keys or semantic search behavior
-                    # type_filter="BOOK_WRITING_STATE" # Assuming search_memory might have a type_filter
-                                                      # If not, we filter manually below.
-                )
-                
-                found_segment = None
-                if retrieved_segments:
-                    for segment in retrieved_segments:
-                        if not (hasattr(segment, 'metadata') and isinstance(segment.metadata, dict) and \
-                                hasattr(segment, 'content')):
-                            self.logger.warning(f"Retrieved memory segment has unexpected structure: {segment}")
-                            continue
-
-                        segment_type = segment.metadata.get("type")
-                        segment_key = segment.metadata.get("key")
-
-                        if segment_type == "BOOK_WRITING_STATE" and segment_key == book_state_memory_key:
-                            found_segment = segment
-                            break
-                
-                if found_segment:
-                    self.book_writing_state = BookWritingState.parse_raw(found_segment.content)
-                    self.logger.info(f"Successfully loaded BookWritingState for project: {self.current_project_name}")
-                else:
-                    self.logger.info(f"No existing BookWritingState found for project: {self.current_project_name}. Initializing new state.")
-                    self.book_writing_state = BookWritingState(project_name=self.current_project_name)
-                    self.memory.add_memory(
-                        content=self.book_writing_state.json(),
-                        type="BOOK_WRITING_STATE",
-                        metadata={"key": book_state_memory_key, "project_name": self.current_project_name, "type": "BOOK_WRITING_STATE"}
+                # Make sure we send a tool_response to signal completion if needed
+                if not last_yielded_stream_data or last_yielded_stream_data.type not in ["tool_response", "final_answer", "error"]:
+                    yield StreamData(
+                        type="tool_response", 
+                        content=trimmed_response, 
+                        tool_name=agent_name, 
+                        iteration=context.get("delegator_iteration")
                     )
-                    self.logger.info(f"Initialized and saved new BookWritingState for project: {self.current_project_name}")
-
-            except ValidationError as ve:
-                self.logger.error(f"Pydantic ValidationError parsing BookWritingState for '{self.current_project_name}': {ve}")
-                self.book_writing_state = BookWritingState(project_name=self.current_project_name)
-                self.memory.add_memory(
-                    content=self.book_writing_state.json(),
-                    type="BOOK_WRITING_STATE",
-                    metadata={"key": book_state_memory_key, "project_name": self.current_project_name, "type": "BOOK_WRITING_STATE"}
-                )
-                self.logger.info(f"Initialized and saved new BookWritingState for '{self.current_project_name}' due to parsing error of existing state.")
-            except Exception as e:
-                self.logger.error(f"Unexpected error loading or initializing BookWritingState for project '{self.current_project_name}': {e}", exc_info=True)
-                self.book_writing_state = BookWritingState(project_name=self.current_project_name)
-                # Potentially save this new state as well, depending on desired behavior for unexpected errors
-                self.logger.info(f"Initialized new BookWritingState for '{self.current_project_name}' due to unexpected error.")
-        
-        elif self.is_book_writing_mode and not self.current_project_name:
-            # Project name was requested, orchestrator will return the request.
-            # self.book_writing_state remains None.
-            # The LLM prompt will be adjusted accordingly.
-            self.logger.debug("Book writing mode active, but project name is missing. Awaiting user input for project name.")
-
-        init_content = MemorySegmentContent(text=f"Orchestrator initialized with goal: {user_goal}")
-        await self.memory.add_memory_segment(MemorySegment(
-            type="ORCHESTRATOR_INIT",
-            source=self.agent_name,
-            content=init_content,
-            metadata={"session_id": session_id, "user_goal": user_goal, "timestamp": time.time()}
-        ))
-
-        conversation_history = context.get("conversation_history", [])
-        previous_steps: List[Dict[str, Any]] = []
-
-        # --- Start of the iteration loop ---
-        for i in range(self.max_iterations):
-            yield StreamData(type="info", content=f"Orchestrator iteration {i+1}/{self.max_iterations} for session \\'{session_id}\\'.", iteration=i+1, max_iterations=self.max_iterations)
-            self.logger.info(f"Orchestrator iteration {i+1}/{self.max_iterations} for session \\'{session_id}\\'.")
-
-            prompt = self._build_llm_prompt(user_goal, conversation_history, previous_steps)
-            
-            prompt_log_content = MemorySegmentContent(text=f"LLM Prompt for iteration {i+1} (see debug for full prompt)")
-            await self.memory.add_memory_segment(MemorySegment(
-                type="ORCHESTRATOR_LLM_PROMPT",
-                source=self.agent_name,
-                content=prompt_log_content,
-                metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time()}
-            ))
-            self.logger.debug(f"Orchestrator LLM Prompt for session \\'{session_id}\\', iteration {i+1}:\\n{prompt}")
-
-            try:
-                llm_response_str = await self.llm.chat_completion_async(
-                    model_name=self.orchestrator_model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=self.config_full.default_temperature,
-                )
-            except Exception as e:
-                self.logger.exception(f"LLM call failed for session \\'{session_id}\\' on iteration {i+1}: {e}")
-                yield StreamData(type="error", content=f"Orchestrator failed to get a response from LLM: {str(e)}", error_details=str(e), iteration=i+1)
-                error_content = MemorySegmentContent(text=f"LLM call failed: {str(e)}", tool_output=f"Prompt was: {prompt[:200]}...")
-                await self.memory.add_memory_segment(MemorySegment(
-                    type="ORCHESTRATOR_LLM_ERROR",
-                    source=self.agent_name,
-                    content=error_content,
-                    metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time()}
-                ))
-                return
-
-            self.logger.debug(f"Orchestrator LLM Raw Response for session \\'{session_id}\\', iteration {i+1}: {llm_response_str}")
-
-            llm_response_log_content = MemorySegmentContent(
-                text=f"LLM Raw Response: {llm_response_str[:200]}...",
-                tool_output=llm_response_str
-            )
-            await self.memory.add_memory_segment(MemorySegment(
-                type="ORCHESTRATOR_LLM_RESPONSE_RAW",
-                source=self.agent_name,
-                content=llm_response_log_content,
-                metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time(), "llm_model": self.orchestrator_model_name}
-            ))
-
-            parsed_llm_response = self._parse_llm_response(llm_response_str, session_id)
-
-            if not parsed_llm_response:
-                yield StreamData(type="error", content="Orchestrator failed to parse LLM response. Ending current attempt.", error_details=f"Raw response: {llm_response_str[:200]}", iteration=i+1) # Added iteration
-                self.logger.error(f"Failed to parse LLM response for session \\'{session_id}\\' on iteration {i+1}. Raw response: {llm_response_str}")
-                parse_error_content = MemorySegmentContent(
-                    text="Failed to parse LLM response.", 
-                    tool_output=llm_response_str
-                )
-                await self.memory.add_memory_segment(MemorySegment(
-                    type="ORCHESTRATOR_PARSE_ERROR",
-                    source=self.agent_name,
-                    content=parse_error_content,
-                    metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time()}
-                ))
-                yield StreamData(type="final_answer", content="I encountered an issue processing the information. Please try rephrasing your request or try again later.", iteration=i+1)
-                return
-
-            current_thought = parsed_llm_response.thought_process
-            current_action = parsed_llm_response.chosen_action
-            
-            yield StreamData(type="orchestrator_thought", content=current_thought.thought, reasoning=current_thought.reasoning, plan=current_thought.plan, iteration=i+1) # Added iteration
-            self.logger.info(f"Orchestrator Thought for session \\'{session_id}\\', iteration {i+1}: {current_thought.thought}")
-
-            thought_action_text = f"Thought: {current_thought.thought}\\\\nAction Type: {current_action.action_type}"
-            log_tool_name = None
-            log_tool_args = None
-            if current_action.action_type == "tool_call" and current_action.tool_call:
-                log_tool_name = current_action.tool_call.tool_name
-                log_tool_args = current_action.tool_call.arguments
-                thought_action_text += f"\\nTool: {log_tool_name}\\nArgs: {json.dumps(log_tool_args)}"
-            elif current_action.action_type == "final_answer":
-                thought_action_text += f"\\nFinal Answer: {current_action.final_answer}"
-                log_tool_name = self.final_answer_tool_name
-
-            thought_action_content = MemorySegmentContent(
-                text=thought_action_text,
-                tool_name=log_tool_name, 
-                tool_args=log_tool_args
-            )
-            await self.memory.add_memory_segment(MemorySegment(
-                type="ORCHESTRATOR_THOUGHT_ACTION",
-                source=self.agent_name,
-                content=thought_action_content,
-                metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time()}
-            ))
-
-            observation = ""
-            if current_action.action_type == "final_answer":
-                answer = current_action.final_answer if current_action.final_answer is not None else "No answer provided."
-                self.logger.info(f"Orchestrator decided for final_answer for session \\'{session_id}\\'. Answer: {answer}")
-                yield StreamData(type="final_answer", content=answer, iteration=i+1)
                 
-                final_answer_log_content = MemorySegmentContent(
-                    text=f"Final Answer provided: {answer}",
-                    tool_name=self.final_answer_tool_name,
-                    tool_args={"answer": answer}
+                self.logger.info(f"Agent '{agent_name}' completed for session '{session_id}'. Response length: {len(trimmed_response)}")
+
+            except Exception as e:
+                error_msg = f"Error during delegation to agent '{agent_name}' for session '{session_id}': {str(e)}"
+                self.logger.exception(error_msg)
+                yield StreamData(
+                    type="tool_response", 
+                    content=f"Error executing {agent_name}: {str(e)}", 
+                    tool_name=agent_name, 
+                    error_details=str(e), 
+                    iteration=context.get("delegator_iteration")
                 )
-                await self.memory.add_memory_segment(MemorySegment(
-                    type="ORCHESTRATOR_FINAL_ANSWER",
-                    source=self.agent_name,
-                    content=final_answer_log_content,
-                    metadata={"session_id": session_id, "iteration": i + 1, "timestamp": time.time()}
-                ))
-                return 
+        else:
+            error_msg = f"Attempted to delegate to unknown agent '{agent_name}' for session '{session_id}'."
+            self.logger.error(error_msg)
+            yield StreamData(
+                type="tool_response", 
+                content=f"Error: Agent {agent_name} not found.", 
+                tool_name=agent_name, 
+                error_details=f"Agent {agent_name} not found.", 
+                iteration=context.get("delegator_iteration")
+            )
 
-            active_tool_name = None 
-            if current_action.action_type == "tool_call" and current_action.tool_call:
-                active_tool_name = current_action.tool_call.tool_name
-                tool_args_dict = current_action.tool_call.arguments
-                sub_goal = tool_args_dict.get("goal", "") # Specialized agents expect 'goal'
-
-                if not sub_goal and active_tool_name.startswith("book_"): # Stricter for book agents
-                    self.logger.error(f"Orchestrator attempted to delegate to book agent {active_tool_name} for session \\'{session_id}\\' but no \\'goal\\' was specified in args: {tool_args_dict}")
-                    observation = f"Error: No goal specified for agent {active_tool_name}."
-                    yield StreamData(type="error", content=observation, error_details=observation, tool_name=active_tool_name, iteration=i+1)
-                else:
-                    yield StreamData(type="info", content=f"Delegating to {active_tool_name}...", tool_name=active_tool_name, tool_args=tool_args_dict, iteration=i+1)
-                    delegation_context = context.copy() 
-                    delegation_context["delegator_iteration"] = i + 1
-                    delegation_context["user_goal"] = user_goal 
-                    if self.current_project_name: # Pass project name to sub-agents if available
-                        delegation_context["project_name"] = self.current_project_name
-
-
-                    async for agent_response_chunk in self._handle_agent_delegation(active_tool_name, sub_goal, delegation_context):
-                        yield agent_response_chunk
-                        if agent_response_chunk.type == "tool_response": 
-                            observation = agent_response_chunk.content if isinstance(agent_response_chunk.content, str) else json.dumps(agent_response_chunk.content)
-                            self.logger.info(f"Observation from {active_tool_name} for session '{session_id}' (iteration {i+1}): {observation[:200]}...")
-                        
-                            # --- New BookWritingState Update Logic ---
-                            if self.is_book_writing_mode and self.book_writing_state and self.current_project_name and active_tool_name and active_tool_name.startswith("book_") and observation:
-                                try:
-                                    agent_output_data = json.loads(observation) # Agent is expected to return JSON string
-                                    self.logger.info(f"Attempting to update BookWritingState for project '{self.current_project_name}' from {active_tool_name} output.")
-                                    updated_state_field = False
-
-                                    # Helper to reduce redundancy for list updates (characters, outlines)
-                                    def update_list_items(current_list, new_item_data_list, item_schema, id_field_name="name"):
-                                        made_change = False
-                                        validated_new_items = [item_schema(**item_data) for item_data in new_item_data_list]
-                                        
-                                        # Create a dictionary of new items for quick lookup
-                                        new_items_dict = {getattr(item, id_field_name): item for item in validated_new_items if hasattr(item, id_field_name)}
-
-                                        temp_list = []
-                                        existing_item_ids = set()
-
-                                        for existing_item in current_list:
-                                            item_id = getattr(existing_item, id_field_name)
-                                            existing_item_ids.add(item_id)
-                                            if item_id in new_items_dict:
-                                                temp_list.append(new_items_dict[item_id]) # Replace with new version
-                                                made_change = True
-                                            else:
-                                                temp_list.append(existing_item) # Keep old version
-                                        
-                                        # Add genuinely new items (those whose ID wasn't in existing_item_ids)
-                                        for new_item_id, new_item in new_items_dict.items():
-                                            if new_item_id not in existing_item_ids:
-                                                temp_list.append(new_item)
-                                                made_change = True
-                                        
-                                        if made_change:
-                                            current_list[:] = temp_list # Modify list in-place
-                                        return made_change
-
-                                    if active_tool_name == "book_plotter":
-                                        if "detailed_chapter_outlines" in agent_output_data:
-                                            new_outlines_data = agent_output_data["detailed_chapter_outlines"]
-                                            if isinstance(new_outlines_data, list):
-                                                # Replace entire list for outlines, or implement smarter merge if needed
-                                                self.book_writing_state.detailed_chapter_outlines = [ChapterOutlineSchema(**outline_data) for outline_data in new_outlines_data]
-                                                self.logger.info(f"Updated detailed_chapter_outlines for '{self.current_project_name}'. Count: {len(self.book_writing_state.detailed_chapter_outlines)}")
-                                                updated_state_field = True
-                                        if "overall_plot_summary" in agent_output_data and isinstance(agent_output_data["overall_plot_summary"], str):
-                                            self.book_writing_state.overall_plot_summary = agent_output_data["overall_plot_summary"]
-                                            self.logger.info(f"Updated overall_plot_summary for '{self.current_project_name}'.")
-                                            updated_state_field = True
-
-                                    elif active_tool_name == "book_character_dev" and "character_profiles" in agent_output_data:
-                                        new_profiles_data = agent_output_data["character_profiles"]
-                                        if isinstance(new_profiles_data, list):
-                                            if update_list_items(self.book_writing_state.character_profiles, new_profiles_data, CharacterProfileSchema, "name"):
-                                                self.logger.info(f"Updated character_profiles for '{self.current_project_name}'. Current count: {len(self.book_writing_state.character_profiles)}")
-                                                updated_state_field = True
-                                    
-                                    elif active_tool_name == "book_worldbuilder" and "world_building_notes" in agent_output_data:
-                                        notes_data = agent_output_data["world_building_notes"]
-                                        if isinstance(notes_data, dict):
-                                            self.book_writing_state.world_building_notes = WorldAnvilSchema(**notes_data)
-                                            self.logger.info(f"Updated world_building_notes for '{self.current_project_name}'.")
-                                            updated_state_field = True
-
-                                    elif active_tool_name == "book_prose_generator" and "generated_prose_update" in agent_output_data:
-                                        prose_update = agent_output_data["generated_prose_update"] 
-                                        if isinstance(prose_update, dict):
-                                            for chapter_key, prose_data_dict in prose_update.items():
-                                                if isinstance(prose_data_dict, dict):
-                                                    # For Phase 1, ChapterProseSchema is simple. Phase 3 will add versioning.
-                                                    self.book_writing_state.generated_prose[str(chapter_key)] = ChapterProseSchema(**prose_data_dict)
-                                                    self.logger.info(f"Updated generated_prose for chapter '{chapter_key}' in project '{self.current_project_name}'.")
-                                                    updated_state_field = True
-                                                else:
-                                                     self.logger.warning(f"Prose data for chapter '{chapter_key}' is not a dict: {prose_data_dict}")
-                                        else:
-                                            self.logger.warning(f"generated_prose_update from {active_tool_name} is not a dict: {prose_update}")
-                                    
-                                    elif active_tool_name == "book_editor":
-                                        if "generated_prose_update" in agent_output_data:
-                                            prose_update = agent_output_data["generated_prose_update"]
-                                            if isinstance(prose_update, dict):
-                                                for chapter_key, prose_data_dict in prose_update.items():
-                                                    if isinstance(prose_data_dict, dict):
-                                                        self.book_writing_state.generated_prose[str(chapter_key)] = ChapterProseSchema(**prose_data_dict)
-                                                        self.logger.info(f"Editor updated generated_prose for chapter '{chapter_key}' in project '{self.current_project_name}'.")
-                                                        updated_state_field = True
-                                        if "revision_notes" in agent_output_data and isinstance(agent_output_data["revision_notes"], str):
-                                            self.book_writing_state.revision_notes = agent_output_data["revision_notes"]
-                                            self.logger.info(f"Updated revision_notes for '{self.current_project_name}'.")
-                                            updated_state_field = True
-                                    
-                                    if updated_state_field:
-                                        book_state_memory_key_for_save = f"book_project_{self.current_project_name.replace(' ', '_').lower()}"
-                                        state_json_string = self.book_writing_state.model_dump_json(indent=2)
-                                        
-                                        # Use self.memory.add_memory, consistent with initialization
-                                        # Assuming add_memory is synchronous. If it's async, it would need 'await'.
-                                        self.memory.add_memory(
-                                            content=state_json_string,
-                                            type="BOOK_WRITING_STATE",
-                                            metadata={
-                                                "key": book_state_memory_key_for_save, 
-                                                "project_name": self.current_project_name, 
-                                                "type": "BOOK_WRITING_STATE", # Ensure type is part of metadata for filtering
-                                                "timestamp": time.time(),
-                                                "updated_by_agent": active_tool_name,
-                                                "session_id": session_id
-                                            }
-                                        )
-                                        self.logger.info(f"Persisted updated BookWritingState to memory for '{self.current_project_name}' with key '{book_state_memory_key_for_save}'.")
-                                    elif not agent_output_data: # Agent returned empty JSON string "{}"
-                                        self.logger.info(f"{active_tool_name} returned empty JSON, no BookWritingState updates applied.")
-                                    else: # Agent returned JSON but no recognized keys for update
-                                         self.logger.info(f"No specific BookWritingState updates applied from {active_tool_name} output (keys not recognized or data invalid): {observation[:200]}")
-
-                                except json.JSONDecodeError:
-                                    self.logger.warning(f"Observation from {active_tool_name} was not valid JSON. Cannot update BookWritingState. Observation: {observation[:200]}")
-                                except Exception as e: 
-                                    self.logger.exception(f"Error updating/persisting BookWritingState from {active_tool_name} response for project '{self.current_project_name}': {e}. Observation: {observation[:200]}")
-                            # --- End of New BookWritingState Update Logic ---
-            
-            previous_steps.append({"thought": current_thought, "action": current_action, "observation": observation})
-            if len(previous_steps) >= self.max_iterations:
-                self.logger.warning(f"Max iterations ({self.max_iterations}) reached for session \\'{session_id}\\'.")
-                yield StreamData(type="final_answer", content="I have reached the maximum number of steps for this task. If the goal is not yet met, please try rephrasing or breaking it down.", iteration=i+1)
-                return
-
-        self.logger.info(f"Orchestrator finished for session \\'{session_id}\\' without reaching a final answer within max_iterations.")
-        # Fallback if loop finishes (should ideally be handled by max_iterations check or final_answer)
-        yield StreamData(type="final_answer", content="The process completed, but a definitive answer was not reached within the allocated steps.", iteration=self.max_iterations)
-
-    def _update_list_items(self, existing_items: List[Any], new_item_data_list: List[Dict], item_schema: Any, key_field: str):
-        """
-        Helper to update a list of Pydantic models.
-        Adds new items or updates existing ones based on a key_field.
-        """
-        if not isinstance(new_item_data_list, list):
-            self.logger.warning(f"new_item_data_list is not a list: {new_item_data_list}")
+    async def _save_current_book_state_to_memory(self):
+        if not self.book_writing_state or not self.current_project_name:
+            self.logger.warning("Attempted to save book state, but state or project name is missing.")
             return
 
-        updated_keys = set()
-        for i in range(len(existing_items) -1, -1, -1): # Iterate backwards for safe removal/update
-            existing_item = existing_items[i]
-            if not hasattr(existing_item, key_field):
-                continue
-            
-            existing_key_value = getattr(existing_item, key_field)
-            for new_data in new_item_data_list:
-                if not isinstance(new_data, dict): continue
-                new_key_value = new_data.get(key_field)
-                if new_key_value == existing_key_value:
-                    try:
-                        updated_item = item_schema(**new_data)
-                        existing_items[i] = updated_item # Replace existing
-                        updated_keys.add(new_key_value)
-                        self.logger.debug(f"Updated item with {key_field}={new_key_value}")
-                    except ValidationError as e:
-                        self.logger.error(f"Validation error updating item with {key_field}={new_key_value}: {e}")
-                    break 
- 
-        # Add items that weren't updates of existing ones
-        for new_data in new_item_data_list:
-            if not isinstance(new_data, dict): continue
-            new_key_value = new_data.get(key_field)
-            if new_key_value not in updated_keys:
+        book_state_memory_key = f"book_project_{self.current_project_name.replace(' ', '_').lower()}"
+        
+        try:
+            # Using add_segment as corrected previously
+            await self.memory.add_segment(
+                segment_type="BOOK_WRITING_STATE",
+                source=self.agent_name, # Orchestrator is saving it
+                content_text=f"Book state for {self.current_project_name} automatically saved.",
+                tool_args=self.book_writing_state.model_dump(), # Save the full state here
+                meta={"key": book_state_memory_key, 
+                      "type": "BOOK_WRITING_STATE", 
+                      "project_name": self.current_project_name,
+                      "timestamp": datetime.now().isoformat() # Use ISO format timestamp
+                     },
+            )
+            self.logger.info(f"Successfully saved book state for project '{self.current_project_name}' to memory with key '{book_state_memory_key}'.")
+        except Exception as e:
+            self.logger.error(f"Error saving book state for project '{self.current_project_name}': {e}", exc_info=True)
+
+
+    @log_async_execution_time(logging.getLogger(f"WITS.OrchestratorAgent.run"))
+    async def run(self, user_goal: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
+        """Run a goal through the orchestrator. Let's get this party started! \\o/"""
+        # Initialize context and get our session ID (gotta keep track of things! ^_^)
+        context = context or {}
+        session_id = context.get("session_id", str(uuid.uuid4()))
+        conversation_history = context.get("conversation_history", [])
+
+        self.logger.info(f"Orchestrator starting for session '{session_id}'. Goal: {user_goal}")
+
+        try:
+            # Check if this is a book writing project =D
+            if (project_name := self._extract_project_name(user_goal, context)) is not None:
+                self.current_project_name = project_name
+                self.is_book_writing_mode = True
+                if not self.book_writing_state:
+                    self.book_writing_state = BookWritingState(project_name=project_name)
+                self.logger.info(f"Book writing mode active for project: {project_name} \\o/")
+            elif "book" in user_goal.lower():
+                self.logger.warning(f"Book mode detected but no project name found? O.o Goal: {user_goal}")
+
+            previous_steps: List[Dict[str, Any]] = []
+
+            # Time for the ReAct loop! Here we go! =D
+            for i in range(self.max_iterations):
+                yield StreamData(
+                    type="info", 
+                    content=f"Orchestrator iteration {i+1}/{self.max_iterations} for session '{session_id}'.",
+                    iteration=i+1, 
+                    max_iterations=self.max_iterations
+                )
+
+                # Build the prompt and get LLM's thoughts
+                prompt = self._build_llm_prompt(user_goal, conversation_history, previous_steps)
+                
+                # Get creative with the temperature! (but not too creative x.x)
+                options = {}
+                if hasattr(self.config_full, 'default_temperature'):
+                    options["temperature"] = self.config_full.default_temperature
+
+                # Ask our LLM friend what to do next =D
+                llm_response = await self.llm.chat_completion_async(
+                    model_name=self.orchestrator_model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    options=options
+                )
+                
+                llm_response_content = llm_response.get('response', '')
+                self.logger.info(f"Got LLM response for session '{session_id}' \\o/")
+
                 try:
-                    new_item = item_schema(**new_data)
-                    existing_items.append(new_item)
-                    self.logger.debug(f"Added new item with {key_field}={new_key_value}")
-                except ValidationError as e:
-                    self.logger.error(f"Validation error adding new item with {key_field}={new_key_value}: {e}")
+                    # Try to understand what the LLM wants us to do o.O
+                    llm_response_parsed = self._parse_llm_response(llm_response_content, session_id)
+                    if llm_response_parsed is None:
+                        self.logger.error(f"Failed to parse LLM response x.x Session: '{session_id}'")
+                        yield StreamData(
+                            type="error", 
+                            content="Oops! I got confused. Can we try that again?", 
+                            iteration=i+1
+                        )
+                        return
+
+                    # Get the thought process and action
+                    thought = llm_response_parsed.thought_process
+                    action = llm_response_parsed.chosen_action
+
+                    # Remember what we're doing (for science! And debugging XD)
+                    previous_steps.append({
+                        "thought": thought.model_dump(),
+                        "action": action.model_dump(),
+                        "observation": None
+                    })
+
+                    # Time to do something! But what? o.O
+                    if action.action_type == "tool_call":
+                        if action.tool_call is None:
+                            self.logger.error(
+                                f"Tool call is None?! What happened?! x.x\\n"
+                                f"Response: {llm_response_content}"
+                            )
+                            yield StreamData(
+                                type="error", 
+                                content="I got confused about what tool to use...", 
+                                iteration=i+1
+                            )
+                            continue
+
+                        tool_name = action.tool_call.tool_name
+                        tool_args = action.tool_call.arguments
+
+                        # Make sure we know this tool/agent =D
+                        if (tool_name != self.final_answer_tool_name and 
+                            tool_name not in self.delegation_targets):
+                            self.logger.error(
+                                f"Unknown tool/agent: '{tool_name}' o.O\\n"
+                                f"Response: {llm_response_content}"
+                            )
+                            yield StreamData(
+                                type="error", 
+                                content=f"I don't know how to use '{tool_name}'...", 
+                                iteration=i+1
+                            )
+                            continue
+
+                        # Tool args should be a dict! No exceptions! >.<
+                        if not isinstance(tool_args, dict):
+                            self.logger.error(
+                                f"Invalid args for {tool_name}: {tool_args}\\n"
+                                f"Response: {llm_response_content}"
+                            )
+                            yield StreamData(
+                                type="error", 
+                                content=f"Got confused about how to use {tool_name}...", 
+                                iteration=i+1
+                            )
+                            continue
+
+                        # If we're delegating to an agent, they need a goal! ^_^
+                        if tool_name in self.delegation_targets:
+                            delegation_goal = tool_args.get("goal")
+                            if not delegation_goal:
+                                self.logger.error(
+                                    f"No goal for agent '{tool_name}'?! x.x\\n"
+                                    f"Args: {tool_args}\\n"
+                                    f"Response: {llm_response_content}"
+                                )
+                                yield StreamData(
+                                    type="error", 
+                                    content=f"I forgot what to tell {tool_name} to do...", 
+                                    iteration=i+1
+                                )
+                                continue
+
+                            # Time to delegate! Let's do this! \\o/
+                            self.logger.info(f"Delegating to {tool_name}: {delegation_goal}")
+                            delegation_context = {
+                                "delegator_iteration": i+1,
+                                "session_id": session_id
+                            }
+
+                            async for response in self._handle_agent_delegation(
+                                tool_name, delegation_goal, delegation_context
+                            ):
+                                yield response
+
+                    # The LLM thinks we're done! But are we really? =D
+                    elif action.action_type == "final_answer":
+                        final_answer_text = action.final_answer
+                        if not isinstance(final_answer_text, str):
+                            self.logger.error(
+                                f"Invalid final answer o.O: {final_answer_text}\\n"
+                                f"Response: {llm_response_content}"
+                            )
+                            yield StreamData(
+                                type="error", 
+                                content="I got confused about my final answer...", 
+                                iteration=i+1
+                            )
+                            continue
+
+                        # Victory! We did it! \\o/
+                        yield StreamData(
+                            type="final_answer", 
+                            content=final_answer_text, 
+                            iteration=i+1
+                        )
+                        return
+
+                    # What kind of action is this?! o.O
+                    else:
+                        self.logger.error(
+                            f"Unknown action type: '{action.action_type}'\\n"
+                            f"Response: {llm_response_content}"
+                        )
+                        yield StreamData(
+                            type="error", 
+                            content=f"I don't know how to '{action.action_type}'...", 
+                            iteration=i+1
+                        )
+                        continue
+
+                except Exception as e:
+                    # Something broke! Time to panic! x.x
+                    self.logger.exception(
+                        f"Error in iteration {i+1}: {e}\\n"
+                        f"Response: {llm_response_content}"
+                    )
+                    yield StreamData(
+                        type="error", 
+                        content=f"Oops! Something went wrong: {str(e)}", 
+                        iteration=i+1
+                    )
+                    return
+
+            # We hit max iterations?! How did we get here? o.O
+            yield StreamData(
+                type="error",
+                content=(
+                    f"I hit my limit of {self.max_iterations} steps "
+                    "without finishing the task... Sorry! x.x"
+                ),
+                iteration=self.max_iterations
+            )
+
+        except Exception as e:
+            # Something REALLY broke! ABANDON SHIP! x.x
+            self.logger.exception(f"Critical error in run method: {e}")
+            yield StreamData(
+                type="error",
+                content=f"A critical error occurred: {str(e)}",
+                error_details=str(e)
+            )

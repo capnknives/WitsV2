@@ -43,10 +43,10 @@ class DebugComponentConfig(BaseModel):
     log_delegations: bool = False
 
 class DebugComponentsConfig(BaseModel):
-    llm_interface: DebugComponentConfig = Field(default_factory=lambda: DebugComponentConfig())
-    memory_manager: DebugComponentConfig = Field(default_factory=lambda: DebugComponentConfig())
-    tools: DebugComponentConfig = Field(default_factory=lambda: DebugComponentConfig())
-    agents: DebugComponentConfig = Field(default_factory=lambda: DebugComponentConfig())
+    llm_interface: DebugComponentConfig = Field(default_factory=DebugComponentConfig)
+    memory_manager: DebugComponentConfig = Field(default_factory=DebugComponentConfig)
+    tools: DebugComponentConfig = Field(default_factory=DebugComponentConfig)
+    agents: DebugComponentConfig = Field(default_factory=DebugComponentConfig)
 
 class DebugConfig(BaseModel):
     enabled: bool = True
@@ -56,7 +56,7 @@ class DebugConfig(BaseModel):
     file_logging_enabled: bool = True
     log_directory: str = "logs"
     performance_monitoring: bool = True
-    components: DebugComponentsConfig = Field(default_factory=lambda: DebugComponentsConfig())
+    components: DebugComponentsConfig = Field(default_factory=DebugComponentsConfig)
 
 class GitIntegrationConfig(BaseModel):
     enabled: bool = False
@@ -87,20 +87,18 @@ class AppConfig(BaseModel):
     ethics_enabled: bool = True
     output_directory: str = Field(default="output")
     default_temperature: Optional[float] = 0.7 # Added default_temperature
-    voice_input_enabled: bool = Field(False, alias="voice_input")
-    voice_input_duration_seconds: int = Field(5, alias="voice_input_duration")
-    whisper_model_name: str = Field("base", alias="whisper_model")
-    whisper_use_fp16: bool = Field(False, alias="whisper_fp16")
-    models: ModelsConfig = Field(default_factory=lambda: ModelsConfig())
-    router: RouterConfig = Field(default_factory=lambda: RouterConfig()) # Though direct call to orchestrator in run.py
-    web_interface: WebInterfaceConfig = Field(default_factory=lambda: WebInterfaceConfig())
-    memory_manager: MemoryManagerConfig = Field(default_factory=lambda: MemoryManagerConfig())
-    debug: DebugConfig = Field(default_factory=lambda: DebugConfig())
-    git_integration: GitIntegrationConfig = Field(default_factory=lambda: GitIntegrationConfig())
+    default_agent_profile_name: str = "general_orchestrator" # Added default agent profile name
+    voice_input_enabled: bool = Field(default=False, alias="voice_input")
+    voice_input_duration_seconds: int = Field(default=5, alias="voice_input_duration")
+    whisper_model_name: str = Field(default="base", alias="whisper_model")
+    whisper_use_fp16: bool = Field(default=False, alias="whisper_fp16")
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+    router: RouterConfig = Field(default_factory=RouterConfig) # Though direct call to orchestrator in run.py
+    web_interface: WebInterfaceConfig = Field(default_factory=WebInterfaceConfig)
+    memory_manager: MemoryManagerConfig = Field(default_factory=MemoryManagerConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
+    git_integration: GitIntegrationConfig = Field(default_factory=GitIntegrationConfig)
     agent_profiles: Dict[str, AgentProfileConfig] = Field(default_factory=dict, description="Map of agent profile names to their configurations")
-    
-    orchestrator_max_iterations: int = 10
-    file_tool_base_path: str = Field(default="data/user_files", description="Base path for file operations in FileTool")
     ollama_url: str = "http://localhost:11434"
     ollama_request_timeout: int = 120
 
@@ -123,46 +121,41 @@ class AppConfig(BaseModel):
 
 CONFIG_INSTANCE: Optional[AppConfig] = None
 
-def load_app_config(config_file_path: str = "config.yaml") -> AppConfig:
-    global CONFIG_INSTANCE
-    if CONFIG_INSTANCE is None:
-        # Default configuration
-        default_config = {
-            'voice_input': False,
-            'voice_input_duration': 5,
-            'whisper_model': 'base',
-            'whisper_fp16': False,
-        }
+CONFIG_FILE_PATH = os.getenv('WITS_CONFIG_PATH', 'config.yaml')
 
-        # Ensure config_file_path is absolute or relative to the project root
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if not os.path.isabs(config_file_path):
-            config_file_path = os.path.join(project_root, config_file_path)
+_app_config_cache: Optional[AppConfig] = None
 
-        if os.path.exists(config_file_path):
-            try:
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    raw_config = yaml.safe_load(f) or {}
-                # Merge with defaults
-                config_data = {**default_config, **raw_config}
-                CONFIG_INSTANCE = AppConfig(**config_data)
-                print(f"[Config] Loaded and validated configuration from '{config_file_path}'.")
-            except Exception as e:
-                print(f"[Config_ERROR] Error loading or validating '{config_file_path}': {e}. Using default config.")
-                CONFIG_INSTANCE = AppConfig(**default_config)
-        else:
-            print(f"[Config_WARN] '{config_file_path}' not found. Using default config and attempting to save it.")
-            CONFIG_INSTANCE = AppConfig(**default_config)
-            try:
-                os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
-                with open(config_file_path, 'w', encoding='utf-8') as f:
-                    # Handle both Pydantic v1 and v2 compatibility
-                    if hasattr(CONFIG_INSTANCE, "model_dump"):
-                        config_dict = CONFIG_INSTANCE.model_dump(by_alias=True)
-                    else:
-                        config_dict = CONFIG_INSTANCE.dict(by_alias=True)
-                    yaml.dump(config_dict, f, sort_keys=False)
-                print(f"[Config] Saved default configuration to '{config_file_path}'. Please review and customize it.")
-            except Exception as e_save:
-                print(f"[Config_ERROR] Could not save default configuration: {e_save}")
-    return CONFIG_INSTANCE
+def load_app_config(config_path: str = CONFIG_FILE_PATH) -> AppConfig:
+    """Loads the application configuration from a YAML file."""
+    global _app_config_cache
+    if _app_config_cache is not None:
+        return _app_config_cache
+
+    if not os.path.exists(config_path):
+        logging.error(f"Configuration file not found at {config_path}. Using default values.")
+        # Fallback to default Pydantic model if config file is missing
+        # This ensures the application can start with defaults, though it might not be fully functional.
+        _app_config_cache = AppConfig()
+        return _app_config_cache
+
+    try:
+        with open(config_path, 'r') as f:
+            raw_config = yaml.safe_load(f)
+        
+        if raw_config is None:
+            logging.warning(f"Configuration file {config_path} is empty. Using default values.")
+            _app_config_cache = AppConfig()
+            return _app_config_cache
+
+        # Pydantic will validate and parse the raw_config dict into the AppConfig model
+        _app_config_cache = AppConfig(**raw_config)
+        logging.info(f"Application configuration loaded successfully from {config_path}.")
+        return _app_config_cache
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing YAML configuration file {config_path}: {e}", exc_info=True)
+        raise ValueError(f"Invalid YAML format in {config_path}") from e
+    except Exception as e: # Catch Pydantic validation errors or other issues
+        logging.error(f"Error loading or validating application configuration from {config_path}: {e}", exc_info=True)
+        # Depending on severity, you might want to raise an error or fall back to defaults
+        # For now, re-raise to make configuration issues explicit during startup
+        raise ValueError(f"Failed to load or validate AppConfig from {config_path}: {e}") from e

@@ -228,10 +228,13 @@ class MemoryManager:
             return
             
         try:
-            save_data = [seg.model_dump(exclude_none=True) for seg in self.segments]
-            # Embeddings are part of MemorySegment schema, so they will be saved if present.
-            # If they are large and regeneration is preferred, exclude them here.
-            # For now, assume they are saved.
+            # Prepare data for JSON serialization, converting datetime to ISO format string
+            save_data = []
+            for seg in self.segments:
+                seg_dict = seg.model_dump(exclude_none=True)
+                if 'timestamp' in seg_dict and isinstance(seg_dict['timestamp'], datetime):
+                    seg_dict['timestamp'] = seg_dict['timestamp'].isoformat()
+                save_data.append(seg_dict)
             
             async with aiofiles.open(self.memory_file, 'w') as f:
                 await f.write(json.dumps(save_data, indent=2))
@@ -320,6 +323,8 @@ class MemoryManager:
 
     async def search_memory(self, query_text: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search memory for segments similar to the query text."""
+        self._search_start_time = time.time() # Capture start time for duration calculation
+
         if not self.embedding_model or not self.index:
             self.logger.warning("Embedding model or FAISS index not available for search.")
             return []
@@ -351,13 +356,23 @@ class MemoryManager:
         # Sort by score descending
         final_results.sort(key=lambda x: x["score"], reverse=True)
         
+        # Calculate duration for debug log
+        end_time = time.time() # Assuming start_time was captured at the beginning of the method
+        # Need to add start_time capture if not already present
+
         if self.debug_enabled:
-             log_debug_info(self.logger, DebugInfo(
+            # Ensure start_time is captured at the beginning of the search_memory method
+            # For now, let's assume it was, or set a placeholder if it wasn't.
+            # Placeholder for duration if start_time is not available here:
+            duration_ms = (end_time - getattr(self, '_search_start_time', end_time)) * 1000
+
+            log_debug_info(self.logger, DebugInfo(
                 timestamp=datetime.now().isoformat(),
                 component="MemoryManager",
                 action="search_memory",
                 details={"query": query_text, "k": k, "num_results": len(final_results)},
-                success=True # Assuming search itself doesn't fail here
+                duration_ms=duration_ms, # Added duration_ms
+                success=True 
             ))
         return final_results
 

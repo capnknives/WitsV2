@@ -34,7 +34,7 @@ router:
 
 # Web Interface Settings (Flask/FastAPI)
 web_interface:
-  enabled: true # Set to true to run the web app by default with run.py
+  enabled: false # Set to false to run in CLI mode by default with run.py
   port: 5001
   host: "0.0.0.0"
   debug: true # Flask/FastAPI debug mode
@@ -68,93 +68,91 @@ orchestrator_max_iterations: 15 # Max steps in a ReAct loop for a single goal
 agent_profiles:
   general_orchestrator:
     agent_class: "agents.orchestrator_agent.OrchestratorAgent"
-    display_name: "General Orchestrator" # Added
-    description: "Handles general tasks and can delegate to other specialized agents if configured." # Added
+    display_name: "General Orchestrator"  
+    description: "Handles general tasks and delegates to other agents as needed."
     llm_model_name: "openhermes:latest" 
     temperature: 0.7
-    tool_names:
-      - "calculator"
-      - "datetime"
-      - "web_search" 
-      - "read_file"
-      - "write_file"
-      - "list_files"
     delegation_target_profile_names: 
       - "engineer"
-      # - "researcher" # Assuming researcher is another profile you might have
-      # - "analyst"    # Assuming analyst is another profile
-      - "scribe"     # Assuming scribe is another profile
-      - "book_plotter"
-      - "book_character_dev"
-      - "book_worldbuilder"
-      - "book_prose_generator"
-      - "book_editor"
-    agent_specific_params: # Added to general_orchestrator for consistency if needed
-      max_iterations: 15 # Default max_iterations for this orchestrator
+      - "book_writing_orchestrator"
+    agent_specific_params:
+      max_iterations: 15  # Default max_iterations for this orchestrator
 
-  book_writing_orchestrator: # New Orchestrator profile for book writing
+  book_writing_orchestrator:
     agent_class: "agents.orchestrator_agent.OrchestratorAgent"
     display_name: "Book Writing Orchestrator"
     description: "Manages the book writing process by delegating to specialized book agents."
-    llm_model_name: "openhermes:latest" 
+    llm_model_name: "llama3" 
     temperature: 0.7
-    tool_names: [] # Orchestrator for book writing might not need direct tools, relies on delegation
     delegation_target_profile_names:
       - "book_plotter"
       - "book_character_dev"
       - "book_worldbuilder"
       - "book_prose_generator"
       - "book_editor"
-    agent_specific_params: # Example of agent-specific params
-      max_iterations: 20 # Override default max_iterations for this orchestrator
+    agent_specific_params:
+      max_iterations: 20  book_plotter:
+    agent_class: "agents.specialized.plotter_agent.PlotterAgent"
+    agent_type: "plotting"
+    display_name: "Book Plotter"
+    description: "Creates story plots, outlines chapters, and develops story arcs."
+    llm_model_name: "llama3"
+    temperature: 0.7
+    agent_specific_params:
+      max_iterations: 3
+
+  book_character_dev:
+    agent_class: "agents.specialized.character_agent.CharacterDevelopmentAgent"
+    agent_type: "character"
+    display_name: "Character Developer"
+    description: "Creates and develops detailed character profiles and backstories."
+    llm_model_name: "llama3"
+    temperature: 0.7
+    agent_specific_params:
+      max_iterations: 3
+
+  book_worldbuilder:
+    agent_class: "agents.specialized.worldbuilder_agent.WorldbuilderAgent"
+    agent_type: "world"
+    display_name: "World Builder"
+    description: "Develops settings, lore, and world rules for stories."
+    llm_model_name: "llama3"
+    temperature: 0.7
+    agent_specific_params:
+      max_iterations: 3
+
+  book_prose_generator:
+    agent_class: "agents.specialized.prose_agent.ProseGenerationAgent"
+    agent_type: "prose"
+    display_name: "Prose Generator"
+    description: "Writes narrative prose, dialogue, and descriptions."
+    llm_model_name: "llama3"
+    temperature: 0.7
+    agent_specific_params:
+      max_iterations: 3
+
+  book_editor:
+    agent_class: "agents.specialized.editor_agent.EditorAgent"
+    agent_type: "editor"
+    display_name: "Book Editor"
+    description: "Reviews and refines book content for quality."
+    llm_model_name: "llama3"
+    temperature: 0.5
+    agent_specific_params:
+      max_iterations: 3
 
   engineer:
     agent_class: "agents.specialized.engineer_agent.EngineerAgent"
-    display_name: "Engineer Agent" # Added
-    description: "Handles software engineering, coding, and related tasks." # Added
-    llm_model_name: "codellama:7b" # Corrected from model
-    temperature: 0.2  # Lower temperature for more precise coding tasks
+    display_name: "Engineer Agent"
+    description: "Handles software engineering, coding, and related tasks."
+    llm_model_name: "codellama:7b"
+    temperature: 0.2
     tool_names: 
       - "project_file_reader"
       - "git_tool"
     max_iterations: 10
     ollama_options:
-      num_ctx: 8192  # Larger context for code analysis
-  book_plotter:
-    agent_class: agents.specialized.plotter_agent.PlotterAgent
-    display_name: "Book Plotter" # Added
-    description: "Generates plot outlines, chapter structures, and story arcs for books." # Added
-    llm_model_name: openhermes:latest  # Or your preferred model for planning
-    temperature: 0.7
-    tool_names: []
-  book_character_dev:
-    agent_class: agents.specialized.character_agent.CharacterDevelopmentAgent
-    display_name: "Character Developer" # Added
-    description: "Develops character profiles, backstories, and motivations for books." # Added
-    llm_model_name: llama3 # Or your preferred model
-    temperature: 0.7
-    tool_names: []
-  book_worldbuilder:
-    agent_class: agents.specialized.worldbuilder_agent.WorldbuilderAgent
-    display_name: "World Builder" # Added
-    description: "Creates the setting, lore, and rules of fictional worlds for books." # Added
-    llm_model_name: llama3 # Or your preferred model
-    temperature: 0.7
-    tool_names: []
-  book_prose_generator:
-    agent_class: agents.specialized.prose_agent.ProseGenerationAgent
-    display_name: "Prose Generator" # Added
-    description: "Writes the actual narrative, dialogue, and descriptions for book chapters." # Added
-    llm_model_name: llama3 # Or your preferred model for creative writing
-    temperature: 0.8
-    tool_names: []
-  book_editor:
-    agent_class: agents.specialized.editor_agent.EditorAgent
-    display_name: "Book Editor" # Added
-    description: "Reviews, edits, and refines generated book prose for consistency and quality." # Added
-    llm_model_name: llama3 # Or your preferred model
-    temperature: 0.5
-    tool_names: []
+      num_ctx: 8192
 
 # Tool Configurations
 tool_configs:

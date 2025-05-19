@@ -33,11 +33,8 @@ class BaseAgent(ABC):
             return {"model_name": model_name}
             
         # Default case - use a generic empty config with default model
-        return {"model_name": "llama3"}
-
-
-    @abstractmethod
-    async def run(self, user_input_or_task: str, context: Optional[Dict[str, Any]] = None) -> Any: # Changed return type to Any for more flexibility with AsyncGenerator
+        return {"model_name": "llama3"}    @abstractmethod
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> Any: # Changed return type to Any for more flexibility with AsyncGenerator
         """Main execution method for the agent."""
         pass
 

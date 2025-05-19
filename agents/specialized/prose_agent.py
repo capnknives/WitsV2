@@ -1,8 +1,9 @@
 import json
-from typing import Any, Dict, Optional, List # Keep List
+from typing import Any, Dict, Optional, List, AsyncGenerator
 
 from agents.base_agent import BaseAgent
-from agents.book_writing_schemas import ChapterProseSchema, ChapterOutlineSchema, CharacterProfileSchema, WorldAnvilSchema # For typing and context
+from agents.book_writing_schemas import ChapterProseSchema, ChapterOutlineSchema, CharacterProfileSchema, WorldAnvilSchema
+from core.schemas import StreamData
 
 class ProseGenerationAgent(BaseAgent):
     # __init__ is inherited. If a specific model for prose generation is desired:
@@ -11,18 +12,12 @@ class ProseGenerationAgent(BaseAgent):
     #     self.llm_model_name = self.config_full.models.get('prose_generator', self.config_full.models.default)
     #     self.logger.info(f"'{self.agent_name}' initialized with LLM model: {self.llm_model_name}.")
 
-    # Changed to synchronous string return
-    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
         effective_context = context if context is not None else {}
         self.logger.info(f"'{self.agent_name}' received task: {task_description}")
 
         book_state_slice = effective_context.get("book_writing_state_slice", {})
         project_name = book_state_slice.get("project_name", "Unknown Project")
-        
-        # Extract relevant context from the slice
-        # The task_description should specify which chapter/scene to work on.
-        # We might need a more robust way to identify the target chapter/scene ID from task_description.
-        # For now, assume task_description contains enough info for the LLM to understand the target.
 
         # Get chapter outlines (list of ChapterOutlineSchema or dicts)
         chapter_outlines_data = book_state_slice.get("detailed_chapter_outlines", [])
@@ -31,7 +26,7 @@ class ProseGenerationAgent(BaseAgent):
             if isinstance(co_data, ChapterOutlineSchema):
                 chapter_outlines_for_prompt.append(co_data.dict(exclude_none=True))
             elif isinstance(co_data, dict):
-                chapter_outlines_for_prompt.append(co_data) # Assume it's already a dict
+                chapter_outlines_for_prompt.append(co_data)  # Assume it's already a dict
 
         # Get character profiles (list of CharacterProfileSchema or dicts)
         character_profiles_data = book_state_slice.get("character_profiles", [])
@@ -41,7 +36,7 @@ class ProseGenerationAgent(BaseAgent):
                 character_profiles_for_prompt.append(cp_data.dict(exclude_none=True))
             elif isinstance(cp_data, dict):
                 character_profiles_for_prompt.append(cp_data)
-        
+
         # Get world building notes (WorldAnvilSchema object or dict)
         world_anvil_data = book_state_slice.get("world_building_notes", {})
         world_anvil_for_prompt = {}
@@ -54,8 +49,8 @@ class ProseGenerationAgent(BaseAgent):
         example_prose_schema_json = ChapterProseSchema.schema_json(indent=2)
 
         prompt = f"""
-You are the Prose Generation Agent for the book project '{project_name}'. 
-Your task is to write compelling narrative prose (story text, dialogue, descriptions) based on the user's request and provided context.
+You are the Prose Generation Agent for the book project \'{project_name}\'. 
+Your task is to write compelling narrative prose (story text, dialogue, descriptions) based on the user\'s request and provided context.
 
 User Task: {task_description}
 (This task might specify a chapter number, scene, or a general prose generation request based on the outlines.)
@@ -87,46 +82,45 @@ Each object in the list should represent a distinct block of prose (e.g., a scen
 - "notes": (Optional, string) Any notes related to this prose.
 
 Example of expected output format:
-{{
+{
   "generated_prose": [
-    {{
+    {
       "chapter_number": 1,
       "scene_number": 1,
       "prose_text": "The wind howled around the crumbling tower...",
       "version": 1,
       "status": "draft",
       "notes": "Opening scene for Chapter 1."
-    }},
-    {{
+    },
+    {
       "chapter_number": 1,
       "scene_number": 2,
       "prose_text": "Later, Elara met Kaelen in the tavern...",
       "version": 1,
       "status": "draft"
-    }}
+    }
   ]
-}}
+}
 Ensure your entire output is ONLY the JSON object. Do not include any explanatory text before or after it.
 """
-        self.logger.debug(f"ProseGenerationAgent LLM Prompt for '{project_name}':\n{prompt}")
-        llm_response_str = ""
+        self.logger.debug(f"ProseGenerationAgent LLM Prompt for \'{project_name}\':\n{prompt}")
+
+        yield StreamData(type="info", content="Generating prose...")
+
         try:
             llm_response_str = await self.llm.chat_completion_async(
-                # model_name=self.llm_model_name, # Use if specific model is set in __init__
                 messages=[{"role": "user", "content": prompt}],
-                # temperature=self.config_full.agent_temperature,
-                # max_tokens=self.config_full.agent_max_tokens, 
-                json_mode=True 
+                format="json"  # Request JSON output format
             )
-            self.logger.debug(f"ProseGenerationAgent LLM Raw Response for '{project_name}': {llm_response_str}")
+            self.logger.debug(f"ProseGenerationAgent LLM Raw Response for \'{project_name}\': {llm_response_str}")
 
             parsed_llm_json = json.loads(llm_response_str)
             if not isinstance(parsed_llm_json, dict) or "generated_prose" not in parsed_llm_json:
-                raise ValueError("LLM response was not a JSON object with 'generated_prose' key.")
-            
+                raise ValueError("LLM response was not a JSON object with \'generated_prose\' key.")
+
             raw_prose_list = parsed_llm_json["generated_prose"]
             if not isinstance(raw_prose_list, list):
-                raise ValueError("'generated_prose' key did not contain a list.")
+                raise ValueError("\'generated_prose\' key did not contain a list.")
 
             validated_prose_objects = []
             for prose_data in raw_prose_list:
@@ -134,30 +128,26 @@ Ensure your entire output is ONLY the JSON object. Do not include any explanator
                     try:
                         validated_prose = ChapterProseSchema(**prose_data).dict()
                         validated_prose_objects.append(validated_prose)
-                    except Exception as e: # Pydantic ValidationError
+                        yield StreamData(type="info", content=f"Generated prose for Chapter {prose_data.get('chapter_number', 'unknown')}, Scene {prose_data.get('scene_number', 'N/A')}")
+                    except Exception as e:  # Pydantic ValidationError
+                        yield StreamData(type="warning", content=f"Skipping a prose object due to validation error: {e}")
                         self.logger.warning(f"Skipping a prose object due to validation error: {e}. Data: {prose_data}")
                 else:
-                    self.logger.warning(f"Skipping an item in 'generated_prose' list as it is not a dictionary: {prose_data}")
-            
+                    yield StreamData(type="warning", content=f"Skipping non-dictionary item in generated_prose list.")
+                    self.logger.warning(f"Skipping an item in \'generated_prose\' list as it is not a dictionary: {prose_data}")
+
             if not validated_prose_objects:
-                 self.logger.info(f"No valid prose objects were generated or validated for task: {task_description}")
-                 return json.dumps({"message": "No valid prose was generated based on the task.", "generated_prose": []})
+                self.logger.info(f"No valid prose objects were generated or validated for task: {task_description}")
+                yield StreamData(type="error", content="No valid prose was generated based on the task.")
+                return
+
+            output_for_orchestrator = {"generated_prose": validated_prose_objects}
+            self.logger.info(f"'{self.agent_name}' completed task for '{project_name}'. Generated {len(validated_prose_objects)} prose object(s).")
+            yield StreamData(type="tool_response", content=json.dumps(output_for_orchestrator), tool_name="book_prose_generator")
 
         except json.JSONDecodeError as e:
             self.logger.error(f"'{self.agent_name}' JSONDecodeError for '{project_name}': {e}. Response: {llm_response_str}")
-            return json.dumps({"error": f"Failed to parse LLM JSON response: {e}", "raw_response": llm_response_str})
-        except Exception as e: # Includes Pydantic ValidationError and ValueErrors from checks
+            yield StreamData(type="error", content=f"Failed to parse JSON from LLM response: {e}")
+        except Exception as e:  # Includes Pydantic ValidationError and ValueErrors from checks
             self.logger.error(f"'{self.agent_name}' Error processing LLM response for '{project_name}': {e}. Response: {llm_response_str}", exc_info=True)
-            return json.dumps({"error": f"Failed to validate or process LLM response: {e}", "raw_response": llm_response_str})
-
-        # Orchestrator will handle persistence.
-        output_for_orchestrator = {"generated_prose": validated_prose_objects}
-        
-        self.logger.info(f"'{self.agent_name}' completed task for '{project_name}'. Generated {len(validated_prose_objects)} prose object(s).")
-        return json.dumps(output_for_orchestrator, default=str)
-
-    def get_description(self) -> str:
-        return "Generates narrative prose (story text, dialogue, descriptions) for specific chapters or scenes. Expects context from BookWritingState and returns a list of ChapterProseSchema objects."
-
-    # def get_config_key(self) -> str:
-    #     return "book_prose_generator"
+            yield StreamData(type="error", content=f"Failed to generate prose: {e}")

@@ -37,6 +37,14 @@ class DebugInfo(BaseModel):
     duration_ms: float
     success: bool
     error: Optional[str] = None
+    # Added fields for LLM details
+    model_name: Optional[str] = None
+    prompt_length: Optional[int] = None
+    response_length: Optional[int] = None
+    response_preview: Optional[str] = None
+    tokens_processed: Optional[int] = None # For prompt tokens
+    tokens_generated: Optional[int] = None # For completion tokens
+    error_message: Optional[str] = None # Specific field for error messages
 
 class PerformanceMonitor:
     """Performance monitoring utility."""

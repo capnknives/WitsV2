@@ -24,6 +24,8 @@ wheels/
 venv/
 env/
 ENV/
+*_env/
+*_env2/
 
 # IDEs and editors
 .idea/
@@ -38,11 +40,17 @@ ENV/
 data/memory/           # Memory files containing conversation history
 data/user_files/       # User uploaded/generated files
 output/               # Generated output files
-config.yaml          # Local configuration file that might contain API keys
 *.env
 .env*
 .env.local
 .env.*.local
+
+# Configuration files with potential secrets
+config.yaml          # Local configuration
+config.local.yaml
+*.key
+*.pem
+*.cert
 
 # Logs and databases
 *.log
@@ -53,8 +61,15 @@ faiss/*.index        # FAISS index files
 # OS
 .DS_Store
 Thumbs.db
+
+# Backup and temporary files
 *.bak
 *.tmp
+*.temp
+*.old
+*~
+*.backup*
+temp/
 
 # Dependencies
 node_modules/

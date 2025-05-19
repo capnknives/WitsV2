@@ -50,16 +50,42 @@ async def get_or_create_agent_for_session(
         logger.debug(f"Reusing existing agent for session {session_id}, profile {profile_name}")
         return SESSION_AGENTS[agent_key]
 
-    logger.info(f"Creating new agent for session {session_id}, profile {profile_name}")
+    logger.info(f"Creating new agent for session {session_id}, profile {profile_name}")    # profile_data is now the Pydantic model for the specific agent profile
+    if not profile_data.agent_class:
+        raise ValueError(f"No agent_class specified in profile '{profile_name}'")
+    
+    # Split the full path into module components and class name
+    module_path_parts = profile_data.agent_class.split('.')
+    if len(module_path_parts) < 2:
+        raise ValueError(f"Invalid agent_class path in profile '{profile_name}': {profile_data.agent_class}")
 
-    # profile_data is now the Pydantic model for the specific agent profile
-    module_path, class_name = profile_data.agent_class.rsplit('.', 1) # Access agent_class directly
+    class_name = module_path_parts[-1]
+    module_path = '.'.join(module_path_parts[:-1])
+
     try:
+        # Import the parent module first
+        parent_path = '.'.join(module_path_parts[:-2]) if len(module_path_parts) > 2 else module_path_parts[0]
+        if parent_path:
+            logger.debug(f"Attempting to import parent module '{parent_path}'")
+            importlib.import_module(parent_path)
+
+        # Then try importing the direct module
+        logger.debug(f"Attempting to import module '{module_path}' for agent class '{class_name}'")
         agent_module = importlib.import_module(module_path)
+    except ImportError as e:
+        logger.error(f"Failed to import agent module {module_path}: {e}", exc_info=True)
+        raise ValueError(f"Could not import agent module for profile '{profile_name}': {e}")
+
+    try:
+        logger.debug(f"Getting class '{class_name}' from module '{module_path}'")
         agent_class_constructor = getattr(agent_module, class_name)
-    except (ImportError, AttributeError) as e:
-        logger.error(f"Failed to import agent class {profile_data.agent_class}: {e}", exc_info=True)
-        raise ValueError(f"Invalid agent class specified in profile '{profile_name}': {profile_data.agent_class}")
+    except AttributeError as e:
+        logger.error(f"Failed to get class {class_name} from module {module_path}: {e}", exc_info=True)
+        raise ValueError(f"Could not find agent class '{class_name}' in module '{module_path}' for profile '{profile_name}'")
+        
+    # Verify that the class is a proper agent class
+    if not issubclass(agent_class_constructor, BaseAgent):
+        raise ValueError(f"Class '{class_name}' in profile '{profile_name}' is not a subclass of BaseAgent")
 
     # LLM Interface for this agent
     # profile_data is an AgentProfileConfig instance.
@@ -69,11 +95,19 @@ async def get_or_create_agent_for_session(
     llm_key = f"{session_id}_{profile_name}_llm" 
     if llm_key not in SESSION_LLMS or SESSION_LLMS[llm_key].model_name != profile_llm_model:
         logger.info(f"Creating new LLM interface for agent {agent_key} with model {profile_llm_model}")
+        
+        # Handle temperature with guaranteed float value
+        temperature = 0.7  # Default temperature
+        if profile_data.temperature is not None:
+            temperature = float(profile_data.temperature)
+        elif hasattr(app_config, 'default_temperature') and app_config.default_temperature is not None:
+            temperature = float(app_config.default_temperature)
+        
         agent_llm_interface = LLMInterface(
             ollama_url=app_config.ollama_url, # Use attribute access
             model_name=profile_llm_model,
             request_timeout=app_config.ollama_request_timeout, # Use attribute access
-            temperature=profile_data.temperature if profile_data.temperature is not None else app_config.default_temperature # Use attribute access
+            temperature=temperature # Now this is guaranteed to be a float
         )
         SESSION_LLMS[llm_key] = agent_llm_interface
     else:
@@ -98,35 +132,46 @@ async def get_or_create_agent_for_session(
         "llm_interface": agent_llm_interface,
         "memory_manager": global_memory_manager,
         "tool_registry": agent_tool_registry,
-        # max_iterations is often part of the agent's own config or a global default
-        # BaseAgent constructor expects 'config' which is the agent_profile_config
     }
-    # BaseAgent's __init__ takes agent_name, config (which is the profile_data here), llm_interface, memory_manager.
-    # OrchestratorAgent adds tool_registry and specialized_agents.
-    # We need to ensure the 'config' passed to BaseAgent is the specific agent's profile config.
-    # The OrchestratorAgent specific 'max_iterations' comes from its config.
 
-    # If the agent class is OrchestratorAgent, it might expect 'specialized_agents'
-    # This part needs to be more dynamic if other agent types have different required params.
-    # For now, assuming OrchestratorAgent or similar BaseAgent derivatives.
-    # The 'config' parameter in BaseAgent.__init__ is used to get agent_config.
-    # So, profile_data (which is an AgentProfile) should be passed as 'config'.
+    # If the agent class is OrchestratorAgent, prepare its delegation_targets
+    if class_name == "OrchestratorAgent":
+        delegation_targets_map: Dict[str, BaseAgent] = {}
+        # profile_data is an AgentProfileConfig instance
+        target_profile_names = profile_data.delegation_target_profile_names or []
+        
+        logger.debug(f"Orchestrator profile '{profile_name}' has delegation targets: {target_profile_names}")
 
-    # The OrchestratorAgent's __init__ also sets self.max_iterations from self.config_full.orchestrator_max_iterations
-    # self.config_full is derived from the 'config' (AgentProfile) passed to it.
-    # So, if AgentProfile has an orchestrator_max_iterations field, it will be used.
-    # Otherwise, we might need to pass it explicitly if it's a global config.
-    # Let's assume AgentProfile model in core.config.py can have orchestrator_max_iterations.
+        for target_name in target_profile_names:
+            if target_name == profile_name: # Avoid self-delegation loop at this stage
+                logger.warning(f"Skipping self-delegation for {target_name} in orchestrator profile {profile_name}")
+                continue
+            try:
+                logger.debug(f"Creating delegate agent '{target_name}' for orchestrator '{profile_name}'")
+                # Recursively get the delegate agent instance
+                delegate_agent = await get_or_create_agent_for_session(
+                    session_id,
+                    target_name,
+                    app_config,
+                    global_memory_manager,
+                    global_tool_registry
+                )
+                delegation_targets_map[target_name] = delegate_agent
+                logger.debug(f"Successfully created delegate agent '{target_name}' for orchestrator '{profile_name}'")
+            except Exception as e:
+                logger.error(f"Failed to create delegate agent '{target_name}' for orchestrator '{profile_name}': {e}", exc_info=True)
+                # Skip this delegate agent
 
-    try:
-        # agent_class_constructor is OrchestratorAgent or similar
-        agent_instance = agent_class_constructor(**agent_init_params)
-        SESSION_AGENTS[agent_key] = agent_instance
-        return agent_instance
-    except Exception as e:
-        logger.error(f"Failed to instantiate agent {profile_data.agent_class} for profile {profile_name}: {e}", exc_info=True)
-        # Include the original error message for better diagnostics
-        raise ValueError(f"Could not create agent from profile '{profile_name}'. Original error: {type(e).__name__}: {str(e)}. Check agent class and parameters.")
+        agent_init_params["delegation_targets"] = delegation_targets_map
+        if "max_iterations" in profile_data.agent_specific_params:
+            agent_init_params["max_iterations"] = profile_data.agent_specific_params["max_iterations"]
+
+    # Create and store the agent instance
+    agent_instance = agent_class_constructor(**agent_init_params)
+    SESSION_AGENTS[agent_key] = agent_instance
+    logger.info(f"Successfully created agent instance for profile '{profile_name}'")
+    
+    return agent_instance
 
 # In app/utils.py (add this new function)
 
@@ -157,7 +202,25 @@ async def update_llm_for_session_agent(
     # Fallback to agent's current config temp, then global default
     agent_profile_config = agent_instance.config_full # This should be the AgentProfile Pydantic model
     default_temp_from_profile = agent_profile_config.temperature if agent_profile_config and agent_profile_config.temperature is not None else app_config.default_temperature
-    target_temperature = new_temperature if new_temperature is not None else (current_llm.temperature if current_llm and hasattr(current_llm, 'temperature') and current_llm.temperature is not None else default_temp_from_profile)
+    
+    # Ensure target_temperature is a float, falling back to a default if necessary
+    current_llm_temp = current_llm.temperature if current_llm and hasattr(current_llm, 'temperature') and current_llm.temperature is not None else default_temp_from_profile
+    
+    if new_temperature is not None:
+        target_temperature = new_temperature
+    elif current_llm_temp is not None:
+        target_temperature = current_llm_temp
+    elif default_temp_from_profile is not None: # Ensure default_temp_from_profile is not None
+        target_temperature = default_temp_from_profile
+    else: # Final fallback if all else is None
+        target_temperature = 0.7 # Default fallback temperature
+
+    if not isinstance(target_temperature, float): # Explicitly cast if it's somehow not float
+        try:
+            target_temperature = float(target_temperature)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert target_temperature \'{target_temperature}\' to float. Using default 0.7.")
+            target_temperature = 0.7
 
 
     if not current_llm or \
@@ -169,7 +232,7 @@ async def update_llm_for_session_agent(
             ollama_url=app_config.ollama_url, # Attribute access
             model_name=target_model_name,
             request_timeout=app_config.ollama_request_timeout, # Attribute access
-            temperature=target_temperature
+            temperature=target_temperature # This should now be a float
         )
         SESSION_LLMS[llm_key] = updated_llm
         agent_instance.llm = updated_llm 

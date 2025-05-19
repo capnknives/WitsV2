@@ -9,10 +9,24 @@ from core.memory_manager import MemoryManager # Kept for __init__ signature
 from agents.book_writing_schemas import ChapterProseSchema, BookWritingState # Assuming BookWritingState might be useful for context type hint
 
 class EditorAgent(BaseAgent):
-    def __init__(self, agent_name: str, config: Dict[str, Any], llm_interface: LLMInterface, memory_manager: MemoryManager, tool_registry: Optional[Any] = None):
+    def __init__(self, agent_name: str, config: Any, llm_interface: LLMInterface, memory_manager: MemoryManager, tool_registry: Optional[Any] = None):
         super().__init__(agent_name, config, llm_interface, memory_manager, tool_registry)
-        self.llm_model_name = self.config_full.models.get('editor', self.config_full.models.default)
-        self.logger.info(f"'{self.agent_name}' initialized with LLM model: {self.llm_model_name}.")
+        # config is an AgentProfileConfig object. It does not directly have a 'models' attribute.
+        # The model name should be determined from config.llm_model_name or a global default.
+        # The BaseAgent already sets self.agent_config which contains the model_name.
+        # We need to ensure that the AppConfig (global) is accessible if we need its .models.default as a fallback.
+        # For now, let's assume the specific model for the editor is in its profile or it uses the agent's default.
+        
+        # If the agent_profile (self.config_full which is AgentProfileConfig) has llm_model_name, use it.
+        # Otherwise, this agent might need a way to access the global AppConfig.models.default.
+        # The BaseAgent._get_agent_specific_config tries to set a model_name in self.agent_config.
+        
+        # Let's simplify: The LLMInterface passed to the agent is already configured with a model.
+        # If this agent *must* use a *different* model than the one its LLMInterface is set up with,
+        # then it needs to request a new LLMInterface or have the global AppConfig.
+        # For now, we assume the provided llm_interface is adequate or its model is what we use.
+        self.llm_model_name = self.llm.model_name # Use the model from the provided LLMInterface
+        self.logger.info(f"'{self.agent_name}' initialized. It will use the LLM model: {self.llm_model_name} from its LLMInterface.")
 
     @staticmethod
     def get_description() -> str:

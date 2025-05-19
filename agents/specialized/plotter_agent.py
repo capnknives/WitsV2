@@ -1,14 +1,15 @@
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, AsyncGenerator
 import json
 import logging
 from agents.base_agent import BaseAgent
+from core.schemas import StreamData
 from agents.book_writing_schemas import ChapterOutlineSchema # For typing and validation
 
 class PlotterAgent(BaseAgent):
     # __init__ is inherited
 
-    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> str:
-        self.logger.info(f"'{self.agent_name}' received task: {task_description}") # Corrected: Use self.agent_name
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
+        self.logger.info(f"'{self.agent_name}' received task: {task_description}")
         if context is None:
             context = {}
 
@@ -39,15 +40,23 @@ Respond with a JSON object containing a single key "overall_plot_summary" with t
 Example: {{"overall_plot_summary": "A young hero discovers a hidden power and must save the kingdom..."}}
 """
                 self.logger.debug(f"PlotterAgent LLM Prompt (Overall Plot Summary):\n{plot_summary_prompt}")
-                summary_response_str = await self.llm.chat_completion_async(
+                yield StreamData(type="info", content="Generating overall plot summary...")
+                
+                chat_response = await self.llm.chat_completion_async(
                     messages=[{"role": "user", "content": plot_summary_prompt}],
                 )
-                self.logger.debug(f"PlotterAgent LLM Response (Overall Plot Summary):\n{summary_response_str}")
+                # Extract content from ChatResponse
+                response_content = chat_response.message.content if hasattr(chat_response, 'message') else str(chat_response)
+                self.logger.debug(f"PlotterAgent LLM Response (Overall Plot Summary):\n{response_content}")
+                
                 try:
-                    summary_data = json.loads(summary_response_str)
+                    summary_data = json.loads(response_content)
                     new_overall_plot_summary = summary_data.get("overall_plot_summary", existing_plot_summary)
+                    if new_overall_plot_summary != existing_plot_summary:
+                        yield StreamData(type="tool_response", content=f"Generated new plot summary: {new_overall_plot_summary[:100]}...")
                 except json.JSONDecodeError:
                     self.logger.error("Failed to parse overall plot summary JSON from LLM. Using existing or empty.")
+                    yield StreamData(type="error", content="Failed to parse plot summary response from LLM")
 
             existing_chapters_summary_for_prompt = [f"Ch{ch.get('chapter_number', 'N/A')}: {ch.get('title', 'Untitled')} - {ch.get('status', 'Planned')} - Summary: {ch.get('summary', 'N/A')[:50]}..." for ch in existing_chapters]
 
@@ -70,42 +79,41 @@ Return your response as a JSON object with a single key "detailed_chapter_outlin
 which is a list of these chapter outline objects.
 If the task is to update a specific chapter, provide the full updated outline for that chapter.
 If the task is to create new chapters, provide outlines for those new chapters.
-Example: {{"detailed_chapter_outlines": [{{"chapter_number": 1, "title": "The Beginning", "summary": "...", "status": "Outlined", "key_scenes": ["Scene A..."]}}]}}
-"""
-            self.logger.debug(f"PlotterAgent LLM Prompt (Detailed Chapters):\n{chapter_prompt}")
-            chapter_response_str = await self.llm.chat_completion_async(
+Example: {{"detailed_chapter_outlines": [{{"chapter_number": 1, "title": "The Beginning", "summary": "...", "status": "Outlined", "key_scenes": ["Scene A..."]}}]}}"""
+            self.logger.debug(f"PlotterAgent LLM Prompt (Chapter Outlines):\n{chapter_prompt}")
+            yield StreamData(type="info", content="Generating chapter outlines...")
+            
+            chat_response = await self.llm.chat_completion_async(
                 messages=[{"role": "user", "content": chapter_prompt}],
             )
-            self.logger.debug(f"PlotterAgent LLM Response (Detailed Chapters):\n{chapter_response_str}")
+            # Extract content from ChatResponse
+            response_content = chat_response.message.content if hasattr(chat_response, 'message') else str(chat_response)
+            self.logger.debug(f"PlotterAgent LLM Response (Chapter Outlines):\n{response_content}")
             
-            generated_chapter_outlines = []
             try:
-                chapter_outlines_data = json.loads(chapter_response_str)
-                raw_outlines = chapter_outlines_data.get("detailed_chapter_outlines", [])
-                for outline_data in raw_outlines:
-                    try:
-                        generated_chapter_outlines.append(ChapterOutlineSchema(**outline_data).dict())
-                    except Exception as e: 
-                        self.logger.warning(f"Skipping a chapter outline due to validation error: {e}. Data: {outline_data}")
-
+                chapter_outlines_data = json.loads(response_content)
+                detailed_chapter_outlines = chapter_outlines_data.get("detailed_chapter_outlines", [])
+                
+                # Validate each chapter outline against the schema
+                for chapter_outline in detailed_chapter_outlines:
+                    ChapterOutlineSchema.validate(chapter_outline)  # This will raise an error if validation fails
+                
+                yield StreamData(type="tool_response", content=f"Generated {len(detailed_chapter_outlines)} chapter outlines.")
             except json.JSONDecodeError:
-                self.logger.error("Failed to parse detailed chapter outlines JSON from LLM.")
+                self.logger.error("Failed to parse chapter outlines JSON from LLM.")
+                yield StreamData(type="error", content="Failed to parse chapter outlines response from LLM")
+            except Exception as e:
+                self.logger.error(f"Error validating chapter outlines: {str(e)}")
+                yield StreamData(type="error", content=f"Error validating chapter outlines: {str(e)}")
 
-            output_for_orchestrator = {}
-            if new_overall_plot_summary != existing_plot_summary:
-                output_for_orchestrator["overall_plot_summary"] = new_overall_plot_summary
-            
-            if generated_chapter_outlines:
-                output_for_orchestrator["detailed_chapter_outlines"] = generated_chapter_outlines
-            
-            if not output_for_orchestrator:
-                self.logger.info(f"PlotterAgent made no changes to plot summary or chapter outlines for task: {task_description}")
-                return json.dumps({"message": "No changes to plot elements based on the task."}) 
-
-            self.logger.info(f"'{self.agent_name}' completed task. Output for orchestrator: {json.dumps(output_for_orchestrator, default=str)[:200]}...") # Corrected: Use self.agent_name
-            return json.dumps(output_for_orchestrator, default=str)
+            # Update the book state slice with new summaries and outlines
+            updated_book_state_slice = {
+                "project_name": project_name,
+                "overall_plot_summary": new_overall_plot_summary,
+                "detailed_chapter_outlines": existing_chapters,  # This should be replaced with the new outlines if generated
+            }
+            yield StreamData(type="update_state", content={"book_writing_state_slice": updated_book_state_slice})
 
         except Exception as e:
-            self.logger.exception(f"Error in PlotterAgent run method for project '{project_name}': {e}")
-            error_output = {"error": str(e), "message": "PlotterAgent encountered an internal error."}
-            return json.dumps(error_output)
+            self.logger.error(f"Error in PlotterAgent run: {str(e)}")
+            yield StreamData(type="error", content=f"Error in PlotterAgent: {str(e)}")

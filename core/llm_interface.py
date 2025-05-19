@@ -291,3 +291,69 @@ class LLMInterface:
         
         # Should not reach here if the loop handles all cases correctly
         return "Error: LLM generation failed after all retries."
+
+    async def chat_completion_async(
+        self,
+        messages: List[Dict[str, str]],
+        model_name: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        format: Optional[str] = None  # Added format parameter
+    ) -> Dict[str, Any]:
+        """
+        Async method for chat completion request.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            model_name: Optional model override
+            options: Additional options for generation
+            format: Optional format specifier ('json' for JSON output)
+            
+        Returns:
+            Dict[str, Any]: ChatResponse from Ollama with 'response' field
+        """
+        model_to_use = model_name or self._model_name
+        if not model_to_use:
+            raise ValueError("No model name specified and no default model set")
+
+        effective_options = {
+            "temperature": self._temperature
+        }
+
+        # Set request timeout if provided
+        if self._request_timeout:
+            effective_options["timeout"] = self._request_timeout
+        
+        # Override with method-specific options if provided
+        if options:
+            effective_options.update(options)
+
+        # For JSON responses, add a system message to guide the format
+        if format == "json":
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You must respond with valid JSON only. No other text or formatting."
+                }
+            ] + messages
+            
+        try:
+            # Use ollama.chat for chat completion
+            response = ollama.chat(
+                model=model_to_use,
+                messages=messages,
+                options=effective_options
+            )
+            
+            # Convert response to dict to match return type
+            return {
+                "response": response.message["content"],
+                "model": response.model,
+                "created_at": response.created_at,
+                "done": response.done,
+                "total_duration": response.total_duration
+            }
+        
+        except Exception as e:
+            error_msg = f"Error calling model '{model_to_use}' for chat: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            return {"response": f"Error: LLM chat failed. Details: {str(e)}"}
