@@ -6,29 +6,39 @@ from pydantic import BaseModel, Field, validator
 from typing import Dict, Optional, List, Any
 
 class ModelsConfig(BaseModel):
-    default: str = "llama3"
-    orchestrator: str = "openhermes:latest" # Ensure this is a powerful model
-    scribe: Optional[str] = None
-    analyst: Optional[str] = None
-    engineer: Optional[str] = None
-    researcher: Optional[str] = None
-    planner: Optional[str] = None
-    # Add other agent-specific models here
+    default: str = "llama3"  # Our trusty fallback model ^_^
+    orchestrator: str = "openhermes:latest"  # The big brain! Better be powerful >.>
+    scribe: Optional[str] = None  # For when we need that creative writing flair =D
+    analyst: Optional[str] = None  # Numbers go in, insights come out! \o/
+    engineer: Optional[str] = None  # Code wizard in training x.x
+    researcher: Optional[str] = None  # Research powers activate! =P
+    planner: Optional[str] = None  # Making plans, hopefully good ones lol
+    # More models incoming! Watch this space ^_^
 
 class RouterConfig(BaseModel):
     fallback_agent: str = "orchestrator_agent"
 
 class WebInterfaceConfig(BaseModel):
-    enabled: bool = False
-    port: int = 5001
-    host: str = "0.0.0.0"
-    debug: bool = True
-    enable_file_uploads: bool = True
-    max_file_size_mb: int = 10
+    enabled: bool = False  # To web or not to web? That is the question! =P
+    port: int = 5001  # Please don't be taken... please don't be taken... >.>
+    host: str = "0.0.0.0"  # Listening on all interfaces like a good server ^_^
+    debug: bool = True  # Debug mode best mode! (until production lol)
+    enable_file_uploads: bool = True  # Let the files flow! \o/
+    max_file_size_mb: int = 10  # Keep those uploads reasonable x.x
 
 class MemoryManagerConfig(BaseModel):
-    vector_model: str = "all-MiniLM-L6-v2"
-    memory_file_path: str = "data/memory/wits_memory.json" # Central memory file, stored in dedicated memory directory
+    vector_model: str = "all-MiniLM-L6-v2"  # Small but mighty! Perfect for embeddings ^_^
+    memory_file_path: str = "data/memory/wits_memory.json"  # The book of memories! Don't lose this file or we'll get amnesia x.x
+    debug_enabled: bool = Field(default=True, description="Enable debug mode? O.o")
+    debug_components: Dict[str, bool] = Field(
+        default_factory=lambda: {
+            "log_embeddings": True,
+            "log_searches": True,
+            "log_initialization": True,
+            "log_additions": True
+        },
+        description="What to debug? =D"
+    )
 
 class DebugComponentConfig(BaseModel):
     log_prompts: bool = False

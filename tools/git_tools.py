@@ -5,22 +5,41 @@ from typing import ClassVar, Type, Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 from .base_tool import BaseTool
 
+# Version control like it's 2005! =D
+
 class GitToolArgs(BaseModel):
-    """Arguments for Git operations."""
-    command: str = Field(..., description="Git command to execute (e.g., 'status', 'branch', 'add', 'commit')")
-    branch_name: Optional[str] = Field(None, description="Branch name for branch-related operations")
-    commit_message: Optional[str] = Field(None, description="Commit message for commit operations")
-    file_paths: Optional[List[str]] = Field(None, description="List of file paths for git operations")
+    """What Git-astic operation shall we perform today? \\o/"""
+    command: str = Field(..., description="The Git command (but not *too* Git-y, we have trust issues >.>)")
+    branch_name: Optional[str] = Field(None, description="Name for new branches (make it memorable! ^_^)")
+    commit_message: Optional[str] = Field(None, description="Your commit story (keep it short and sweet! =P)")
+    file_paths: Optional[List[str]] = Field(None, description="Files to stage (no sneaky system files! x.x)")
 
 class GitToolResponse(BaseModel):
-    """Response from Git operations."""
-    success: bool = Field(False, description="Whether the operation was successful")
-    output: str = Field("", description="Output from the git command")
-    error: Optional[str] = Field(None, description="Error message if the operation failed")
-    command: str = Field(..., description="The git command that was executed")
+    """The tale of our Git adventure! O.o"""
+    success: bool = Field(..., description="Did we Git it right? =D")
+    output: str = Field("", description="Git's reply (hopefully not angry! >.>)")
+    error: Optional[str] = Field(None, description="When Git throws a tantrum... x.x")
+    command: str = Field(..., description="What we asked Git to do \\o/")
 
 class GitTool(BaseTool):
-    """Tool for safely executing Git operations."""
+    """
+    Your friendly neighborhood Git whisperer! \\o/
+    
+    I help you Git stuff done safely! No force pushing here! ^_^
+    Think of me as your responsible friend who won't let you 
+    git push --force to master at 4am! =P
+    
+    I know these tricks:
+    1. status: What's the sitch? O.o
+    2. branch: Branch like a tree! \\o/
+    3. add: Stage those changes! =D
+    4. commit: Save your progress! ^_^
+    5. diff: What did we break- I mean, change? >.>
+    6. log: Time travel through code! \\o/
+    7. checkout: Branch hopping (new branches only, I'm careful! =P)
+    8. pull: Get the new-new! ^_^
+    9. push: Share your brilliance! \\o/
+    """
     
     name: ClassVar[str] = "git_tool"
     description: ClassVar[str] = "Execute Git operations safely within the project repository."

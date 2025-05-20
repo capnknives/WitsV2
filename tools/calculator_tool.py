@@ -18,32 +18,35 @@ class CalculatorResponse(BaseModel):
 
 class CalculatorTool(BaseTool):
     """
-    Tool for evaluating mathematical expressions.
+    Your friendly neighborhood math wizard! \\o/
     
-    This tool safely evaluates mathematical expressions and provides the result.
-    It supports basic arithmetic operations, common mathematical functions,
-    and constants.
+    I safely evaluate expressions so you don't have to math by hand!
+    Basic arithmetic? Ez pz! ^_^
+    Scientific functions? No problemo! =D
+    Complex calculations? Hold my coffee! O.o
+    
+    Just don't try to divide by zero... I'm looking at you >.>
     """
     
     name: ClassVar[str] = "calculator"
-    description: ClassVar[str] = "Evaluate mathematical expressions. Supports basic arithmetic operations (+, -, *, /, **, %), common functions (sin, cos, tan, sqrt, log), and constants (pi, e)."
+    description: ClassVar[str] = "Math magician at your service! \\o/ Let me calculate stuff for you - basic ops (+, -, *, /, **, %), cool functions (sin, cos, tan, sqrt, log), and some tasty constants (pi, e)"
     args_schema: ClassVar[Type[BaseModel]] = CalculatorArgs
     
-    # Allowed constant and function names for the restricted environment
+    # Our trusted math buddies (they passed the background check! =P)
     _ALLOWED_NAMES = {
-        'sin': math.sin,
-        'cos': math.cos,
-        'tan': math.tan,
-        'sqrt': math.sqrt,
-        'log': math.log,
-        'log10': math.log10,
-        'exp': math.exp,
-        'abs': abs,
-        'ceil': math.ceil,
-        'floor': math.floor,
-        'round': round,
-        'pi': math.pi,
-        'e': math.e
+        'sin': math.sin,  # For when you need those waves ~
+        'cos': math.cos,  # The companion to sin ^_^
+        'tan': math.tan,  # The wild child O.o
+        'sqrt': math.sqrt,  # Square roots are just math trees! \\o/
+        'log': math.log,  # Natural logs are nature's calculator =D
+        'log10': math.log10,  # When you need that base 10 goodness
+        'exp': math.exp,  # e to the power of AWESOME! ^_^
+        'abs': abs,  # No negativity allowed here! =P
+        'ceil': math.ceil,  # Rounds up (like my hopes and dreams!)
+        'floor': math.floor,  # Rounds down (like my debugging skills x.x)
+        'round': round,  # For when you can't decide up or down >.>
+        'pi': math.pi,  # Mmm... π! *om nom nom*
+        'e': math.e  # Not just for emails anymore! =D
     }
     
     def _sanitize_expression(self, expression: str) -> str:
@@ -138,7 +141,8 @@ class CalculatorTool(BaseTool):
             
             return CalculatorResponse(
                 result=result,
-                expression=expression
+                expression=expression,
+                error=None  # All good in the math hood! ^_^
             )
         
         except ValueError as ve:

@@ -1,53 +1,57 @@
-# core/debug_utils.py
-import logging
+# Welcome to debug paradise! Where we turn chaos into... organized chaos! \\o/
+import logging  # Because print() is so 2010 =P
 import logging.handlers
 import os
 import sys
-from datetime import datetime
-from typing import Optional, Dict, Any, Callable, TypeVar, Union, Awaitable, AsyncGenerator, overload, cast
-from typing_extensions import ParamSpec
-from functools import wraps
-import time
-import json
-import traceback
-from pathlib import Path
-from pydantic import BaseModel
-import inspect
+from datetime import datetime  # Time tracking for the time lords! ^_^
+from typing import Optional, Dict, Any, Callable, TypeVar, Union, Awaitable, AsyncGenerator, overload, cast  # Type hints galore! O.o
+from typing_extensions import ParamSpec  # Extra typing powers! \\o/
+from functools import wraps  # Decorator magic! ✨
+import time  # For when we need to know how slow things are x.x
+import json  # JSON: Because string parsing is for masochists! >.>
+import traceback  # When things go boom, we want details! =D
+from pathlib import Path  # Paths made easy! ^_^
+from pydantic import BaseModel  # Our data validation bestie! \\o/
+import inspect  # For when we need to get creepily introspective O.o
 
-# Type variable for decorators
-P = ParamSpec('P')
-R = TypeVar('R')
-F = TypeVar('F', bound=Callable[..., Any])
-YT = TypeVar('YT') # Yield type for AsyncGenerator
+# Type variables for our fancy decorators (because we're organized like that! =P)
+P = ParamSpec('P')  # P is for Parameters! ^_^
+R = TypeVar('R')  # R is for Return! \\o/
+F = TypeVar('F', bound=Callable[..., Any])  # F is for Function! =D
+YT = TypeVar('YT')  # YT is for Yield Type! (async stuff is complicated x.x)
 
-# Helper type alias for async functions
-AsyncCallable = Callable[P, Awaitable[R]]
-AsyncGeneratorCallable = Callable[P, AsyncGenerator[YT, None]]
+# Helper types for async functions (because async isn't complicated enough! >.>)
+AsyncCallable = Callable[P, Awaitable[R]]  # Regular async functions
+AsyncGeneratorCallable = Callable[P, AsyncGenerator[YT, None]]  # Async generators (spicy! O.o)
 
-# Type variable that can represent either an AsyncCallable or AsyncGeneratorCallable
+# A type that can be either kind of async function (we're flexible like that! ^_^)
 F_async_flexible = TypeVar('F_async_flexible', bound=Callable[..., Union[Awaitable[Any], AsyncGenerator[Any, None]]])
 
 
 class DebugInfo(BaseModel):
-    """Structured debug information for all components."""
-    timestamp: str
-    component: str
-    action: str
-    details: Dict[str, Any] = {}
-    duration_ms: float
-    success: bool
-    error: Optional[str] = None
-    # Added fields for LLM details
-    model_name: Optional[str] = None
-    prompt_length: Optional[int] = None
-    response_length: Optional[int] = None
-    response_preview: Optional[str] = None
-    tokens_processed: Optional[int] = None # For prompt tokens
-    tokens_generated: Optional[int] = None # For completion tokens
-    error_message: Optional[str] = None # Specific field for error messages
+    """
+    Our super-organized debug info container! Everything has its place! \\o/
+    Think of it as a fancy box where we put all our debug treasures! ^_^
+    """
+    timestamp: str  # When did it happen? Time is important! =D
+    component: str  # Who done it? O.o
+    action: str  # What were they trying to do? >.>
+    details: Dict[str, Any] = {}  # All the juicy details! \\o/
+    duration_ms: float  # How long did it take? (Time is money! x.x)
+    success: bool  # Did it work? *crosses fingers* ^_^
+    error: Optional[str] = None  # If it didn't work, what went wrong? =P
+    
+    # Extra fields for LLM debugging (because LLMs need extra attention! \\o/)
+    model_name: Optional[str] = None  # Which AI friend are we talking to? ^_^
+    prompt_length: Optional[int] = None  # How chatty were we? O.o
+    response_length: Optional[int] = None  # How chatty was the AI? =D
+    response_preview: Optional[str] = None  # A sneak peek at what they said! >.>
+    tokens_processed: Optional[int] = None  # How many tokens did we feed it? x.x
+    tokens_generated: Optional[int] = None  # How many tokens did it spit out? =P
+    error_message: Optional[str] = None  # Detailed oopsie report! \\o/
 
 class PerformanceMonitor:
-    """Performance monitoring utility."""
+    """Time to see how fast (or slow) things are! Ready, set, go! ^_^"""
     
     def __init__(self, name: str):
         self.name = name

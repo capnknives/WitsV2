@@ -1,31 +1,45 @@
-# tools/file_tools.py
+# Welcome to the file playground! Where bytes become dreams! \\o/
+"""
+Your friendly file operations toolkit! =D
+We've got everything you need:
+- Reading files (for those curious minds! ^_^)
+- Writing files (creating digital art! \\o/)
+- Listing files (like a really organized treasure hunt! O.o)
+"""
+
 import os
 import aiofiles
+import logging
 from typing import ClassVar, Type, Dict, Any, List, Optional, Union
 from pydantic import BaseModel, Field
 from .base_tool import BaseTool
 
+# Let's play with files like it's 1999! \\o/
+
 # --- File Read Tool ---
 
 class ReadFileArgs(BaseModel):
-    """Arguments for reading a file."""
-    file_path: str = Field(..., description="Path to the file to read, relative to the output directory.")
+    """What are we reading today? =D"""
+    file_path: str = Field(..., description="Where's our target file hiding? ^_^")
 
 class ReadFileResponse(BaseModel):
-    """Response from reading a file."""
-    content: str = Field("", description="Content of the file.")
-    error: Optional[str] = Field(None, description="Error message if file reading failed.")
-    file_path: str = Field(..., description="Path to the file that was read.")
-    exists: bool = Field(False, description="Whether the file exists.")
+    """The treasures we found in the file! \\o/"""
+    content: str = Field("", description="All the juicy contents! =P")
+    error: Optional[str] = Field(None, description="Oops moments... >.>")
+    exists: bool = Field(..., description="Is it real or just fantasy? O.o")
+    file_path: str = Field(..., description="The path we looked in! \\o/")
 
 class ReadFileTool(BaseTool):
-    """Tool for reading file contents."""
+    """
+    Your personal file detective! I find and read files so you don't have to! ^_^
+    Think of me as a very eager librarian with safety goggles! \\o/
+    """
     
     name: ClassVar[str] = "read_file"
     description: ClassVar[str] = "Read the contents of a file. Path is relative to the output directory."
     args_schema: ClassVar[Type[BaseModel]] = ReadFileArgs
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize with configuration."""
         super().__init__()
         self.config = config or {}
@@ -117,26 +131,31 @@ class ReadFileTool(BaseTool):
 # --- File Write Tool ---
 
 class WriteFileArgs(BaseModel):
-    """Arguments for writing to a file."""
-    file_path: str = Field(..., description="Path to the file to write, relative to the output directory.")
-    content: str = Field(..., description="Content to write to the file.")
-    append: bool = Field(False, description="If True, append to existing file; if False, overwrite.")
+    """The recipe for our file creation magic! =D"""
+    file_path: str = Field(..., description="Where shall we create our masterpiece? \\o/")
+    content: str = Field(..., description="The stuff of legends (or just text, that works too ^_^)")
+    create_dirs: bool = Field(False, description="Should we make folders too? Careful with this power! >.>")
+    append: bool = Field(False, description="Add to existing file? Like a story that never ends! \\o/")
 
 class WriteFileResponse(BaseModel):
-    """Response from writing to a file."""
-    success: bool = Field(False, description="Whether the write operation succeeded.")
-    error: Optional[str] = Field(None, description="Error message if file writing failed.")
-    file_path: str = Field(..., description="Path to the file that was written.")
-    bytes_written: int = Field(0, description="Number of bytes written to the file.")
+    """How did our file writing adventure go? O.o"""
+    success: bool = Field(..., description="Did we do the thing? =D")
+    error: Optional[str] = Field(None, description="When things go whoopsie! x.x")
+    file_path: str = Field(..., description="Where we left our masterpiece! \\o/")
+    bytes_written: Optional[int] = Field(None, description="How many bytes did we write? So many numbers! @.@")
 
 class WriteFileTool(BaseTool):
-    """Tool for writing content to a file."""
+    """
+    The artist formerly known as 'file writer'! \\o/
+    I create and edit files like Bob Ross paints happy little trees! ^_^
+    Just don't ask me to write system files... I have standards! =P
+    """
     
     name: ClassVar[str] = "write_file"
     description: ClassVar[str] = "Write content to a file. Path is relative to the output directory."
     args_schema: ClassVar[Type[BaseModel]] = WriteFileArgs
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize with configuration."""
         super().__init__()
         self.config = config or {}
@@ -167,19 +186,21 @@ class WriteFileTool(BaseTool):
             async with aiofiles.open(full_path, mode, encoding='utf-8') as f:
                 await f.write(args.content)
             
-            # Get bytes written (as reported by disk)
+            # Get bytes_written (as reported by disk)
             bytes_written = os.path.getsize(full_path)
             
             return WriteFileResponse(
                 success=True,
                 file_path=file_path,
-                bytes_written=bytes_written
+                bytes_written=bytes_written,
+                error=None
             )
         except Exception as e:
             return WriteFileResponse(
                 success=False,
                 error=f"Error writing to file: {str(e)}",
-                file_path=file_path
+                file_path=file_path,
+                bytes_written=None
             )
     
     def _sanitize_path(self, path: str) -> str:
@@ -210,34 +231,38 @@ class WriteFileTool(BaseTool):
 # --- List Files Tool ---
 
 class ListFilesArgs(BaseModel):
-    """Arguments for listing files."""
-    directory: str = Field("", description="Directory to list files from, relative to the output directory. Empty means root output directory.")
-    recursive: bool = Field(False, description="If True, recursively list files in subdirectories.")
-    include_directories: bool = Field(True, description="If True, include directories in the listing.")
-    file_extension: Optional[str] = Field(None, description="Filter files by extension (e.g., '.txt').")
+    """How shall we explore this digital forest? O.o"""
+    directory: str = Field(..., description="Which folder should we peek into? \\o/")
+    recursive: bool = Field(False, description="Go deeper? Like inception, but with folders! =D")
+    include_directories: bool = Field(True, description="Should we include folders too? The more the merrier! ^_^")
+    file_extension: Optional[str] = Field(None, description="Only files with this extension? Picky picky! >.>")
 
 class FileInfo(BaseModel):
-    """Information about a file or directory."""
-    name: str = Field(..., description="Name of the file or directory.")
-    path: str = Field(..., description="Relative path to the file or directory.")
-    is_directory: bool = Field(False, description="Whether the item is a directory.")
-    size_bytes: Optional[int] = Field(None, description="Size of the file in bytes.")
+    """Everything you wanted to know about a file (but were afraid to ask >.>)"""
+    name: str = Field(..., description="The file's stage name ^_^")
+    path: str = Field(..., description="Where to find this superstar! \\o/")
+    is_dir: bool = Field(..., description="Is it a folder in disguise? O.o")
+    size: Optional[int] = Field(None, description="How chunky is it? (in bytes, not cookies x.x)")
 
 class ListFilesResponse(BaseModel):
-    """Response from listing files."""
-    files: List[FileInfo] = Field([], description="List of files and directories.")
-    directory: str = Field(..., description="The directory that was listed.")
-    error: Optional[str] = Field(None, description="Error message if listing failed.")
-    total_count: int = Field(0, description="Total number of items in the listing.")
+    """The results of our file hunting expedition! =D"""
+    files: List[FileInfo] = Field([], description="All the files we rounded up! \\o/")
+    directory: str = Field(..., description="The home base of our expedition! \\o/")
+    error: Optional[str] = Field(None, description="When the file hunt goes wrong >.>")
+    total_count: int = Field(0, description="How many treasures did we find? =D")
 
 class ListFilesTool(BaseTool):
-    """Tool for listing files in a directory."""
+    """
+    Your file system tour guide! ^_^
+    I explore folders like Indiana Jones explores temples!
+    Just with less booby traps and more error handling! =P
+    """
     
     name: ClassVar[str] = "list_files"
     description: ClassVar[str] = "List files in a directory. Path is relative to the output directory."
     args_schema: ClassVar[Type[BaseModel]] = ListFilesArgs
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize with configuration."""
         super().__init__()
         self.config = config or {}
@@ -291,8 +316,8 @@ class ListFilesTool(BaseTool):
                             files.append(FileInfo(
                                 name=dir_name,
                                 path=rel_path,
-                                is_directory=True,
-                                size_bytes=None
+                                is_dir=True,
+                                size=None
                             ))
                     
                     # Add files
@@ -311,8 +336,8 @@ class ListFilesTool(BaseTool):
                         files.append(FileInfo(
                             name=filename,
                             path=rel_path,
-                            is_directory=False,
-                            size_bytes=size
+                            is_dir=False,
+                            size=size
                         ))
             else:
                 # List only the specified directory
@@ -342,13 +367,14 @@ class ListFilesTool(BaseTool):
                         files.append(FileInfo(
                             name=entry.name,
                             path=rel_path,
-                            is_directory=is_dir,
-                            size_bytes=size
+                            is_dir=is_dir,
+                            size=size
                         ))
             
             return ListFilesResponse(
                 files=files,
                 directory=directory,
+                error=None,
                 total_count=len(files)
             )
         except Exception as e:
@@ -391,10 +417,14 @@ class ListFilesTool(BaseTool):
 # --- File Tool ---
 
 class FileTool(BaseTool):
-    """Tool for file operations (read, write, list)."""
+    """
+    The Swiss Army Knife of file operations! \\o/
+    I'm like a file ninja - reading, writing, and listing with style! ^_^
+    Safety first though, we keep everything in a cozy directory! =D
+    """
     
     name: ClassVar[str] = "file"
-    description: ClassVar[str] = "Perform file operations (read, write, list) in a safe directory."
+    description: ClassVar[str] = "Perform file operations (read, write, list) in a safe directory. Like a responsible file DJ! \\o/"
     
     def __init__(self, base_path: str = "data/user_files"):
         """Initialize with base path."""
@@ -403,7 +433,10 @@ class FileTool(BaseTool):
         os.makedirs(self.base_path, exist_ok=True)
     
     def _ensure_safe_path(self, path: str) -> str:
-        """Ensure the path is within the base directory."""
+        """
+        Our file system bouncer! (•_•)
+        Making sure no paths try to sneak past the velvet rope! >.>
+        """
         # Convert to absolute path
         abs_path = os.path.abspath(os.path.join(self.base_path, path))
         
@@ -413,8 +446,8 @@ class FileTool(BaseTool):
         
         return abs_path
     
-    async def read_file(self, path: str) -> ReadFileResponse:
-        """Read a file."""
+    async    def read_file(self, path: str) -> ReadFileResponse:
+        """Story time! Let's see what secrets this file holds! ^o^"""
         try:
             abs_path = self._ensure_safe_path(path)
             if not os.path.exists(abs_path):
@@ -431,7 +464,8 @@ class FileTool(BaseTool):
             return ReadFileResponse(
                 content=content,
                 file_path=path,
-                exists=True
+                exists=True,
+                error=None
             )
         except Exception as e:
             return ReadFileResponse(
@@ -441,8 +475,8 @@ class FileTool(BaseTool):
                 exists=False
             )
     
-    async def list_files(self, args: ListFilesArgs) -> ListFilesResponse:
-        """List files in a directory."""
+    async    def list_files(self, args: ListFilesArgs) -> ListFilesResponse:
+        """Time for a digital scavenger hunt! Let's find those files! \\o/"""
         try:
             dir_path = self._ensure_safe_path(args.directory)
             if not os.path.exists(dir_path):
@@ -467,9 +501,10 @@ class FileTool(BaseTool):
                             files.append(FileInfo(
                                 name=d,
                                 path=rel_path,
-                                is_directory=True
+                                is_dir=True,
+                                size=None
                             ))
-                
+
                 for f in filenames:
                     if args.file_extension and not f.endswith(args.file_extension):
                         continue
@@ -481,13 +516,14 @@ class FileTool(BaseTool):
                     files.append(FileInfo(
                         name=f,
                         path=rel_path,
-                        is_directory=False,
-                        size_bytes=size
+                        is_dir=False,
+                        size=size
                     ))
             
             return ListFilesResponse(
                 files=files,
                 directory=args.directory,
+                error=None,
                 total_count=len(files)
             )
         except Exception as e:
@@ -499,7 +535,10 @@ class FileTool(BaseTool):
             )
             
     async def execute(self, args: Union[ReadFileArgs, ListFilesArgs]) -> Union[ReadFileResponse, ListFilesResponse]:
-        """Execute the appropriate file operation based on args type."""
+        """
+        Time to do the thing! =D
+        Like a file operations traffic cop, directing your requests to the right place! ^_^
+        """
         if isinstance(args, ReadFileArgs):
             return await self.read_file(args.file_path)
         elif isinstance(args, ListFilesArgs):

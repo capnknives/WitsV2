@@ -1,53 +1,58 @@
+# Time to unleash our inner storyteller! Let the words flow! \\o/
 import json
 from typing import Any, Dict, Optional, List, AsyncGenerator
 
 from agents.base_agent import BaseAgent
-from agents.book_writing_schemas import ChapterProseSchema, ChapterOutlineSchema, CharacterProfileSchema, WorldAnvilSchema
+from agents.book_writing_schemas import ChapterProseSchema, ChapterOutlineSchema, CharacterProfileSchema, WorldAnvilSchema  # Our magical story ingredients! ^_^
 from core.schemas import StreamData
 
 class ProseGenerationAgent(BaseAgent):
-    # __init__ is inherited. If a specific model for prose generation is desired:
+    # Basic init is fine, but here's what we could do if we wanted to be fancy =D
     # def __init__(self, agent_name: str, config: Dict[str, Any], llm_interface: LLMInterface, memory_manager: MemoryManager, tool_registry: Optional[Any] = None):
     #     super().__init__(agent_name, config, llm_interface, memory_manager, tool_registry)
-    #     self.llm_model_name = self.config_full.models.get('prose_generator', self.config_full.models.default)
-    #     self.logger.info(f"'{self.agent_name}' initialized with LLM model: {self.llm_model_name}.")
+    #     self.llm_model_name = self.config_full.models.get('prose_generator', self.config_full.models.default)  # Time to write some epic stories! ^_^
+    #     self.logger.info(f"'{self.agent_name}' is ready to write the next bestseller! Using model: {self.llm_model_name} \\o/")
 
     async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
+        # Let's weave some epic tales! ^_^
         effective_context = context if context is not None else {}
-        self.logger.info(f"'{self.agent_name}' received task: {task_description}")
+        self.logger.info(f"'{self.agent_name}' is about to embark on a new writing adventure: {task_description}")
 
         book_state_slice = effective_context.get("book_writing_state_slice", {})
-        project_name = book_state_slice.get("project_name", "Unknown Project")
+        project_name = book_state_slice.get("project_name", "Epic Tale of Mystery")  # Every story needs a name! =D
 
-        # Get chapter outlines (list of ChapterOutlineSchema or dicts)
+        # Time to gather our story ingredients! \\o/
+        
+        # First up: Chapter outlines (our story roadmap! O.o)
         chapter_outlines_data = book_state_slice.get("detailed_chapter_outlines", [])
         chapter_outlines_for_prompt = []
-        for co_data in chapter_outlines_data:
+        for co_data in chapter_outlines_data:  # Let's organize these bad boys! ^_^
             if isinstance(co_data, ChapterOutlineSchema):
                 chapter_outlines_for_prompt.append(co_data.dict(exclude_none=True))
             elif isinstance(co_data, dict):
-                chapter_outlines_for_prompt.append(co_data)  # Assume it's already a dict
+                chapter_outlines_for_prompt.append(co_data)  # Already formatted? Nice! =P
 
-        # Get character profiles (list of CharacterProfileSchema or dicts)
+        # Next: Character profiles (the stars of our show! \\o/)
         character_profiles_data = book_state_slice.get("character_profiles", [])
         character_profiles_for_prompt = []
-        for cp_data in character_profiles_data:
+        for cp_data in character_profiles_data:  # Time to meet our cast! ^_^
             if isinstance(cp_data, CharacterProfileSchema):
                 character_profiles_for_prompt.append(cp_data.dict(exclude_none=True))
             elif isinstance(cp_data, dict):
                 character_profiles_for_prompt.append(cp_data)
 
-        # Get world building notes (WorldAnvilSchema object or dict)
+        # And finally: World building notes (our magical playground! =D)
         world_anvil_data = book_state_slice.get("world_building_notes", {})
         world_anvil_for_prompt = {}
         if isinstance(world_anvil_data, WorldAnvilSchema):
             world_anvil_for_prompt = world_anvil_data.dict(exclude_none=True)
         elif isinstance(world_anvil_data, dict):
-            world_anvil_for_prompt = world_anvil_data
+            world_anvil_for_prompt = world_anvil_data  # Ready to go! \\o/
 
-        # Example of how ChapterProseSchema looks for the LLM
+        # Here's how we want our prose to look (gotta keep it organized! x.x)
         example_prose_schema_json = ChapterProseSchema.schema_json(indent=2)
 
+        # Time to craft our epic writing prompt! *drumroll* ^_^
         prompt = f"""
 You are the Prose Generation Agent for the book project \'{project_name}\'. 
 Your task is to write compelling narrative prose (story text, dialogue, descriptions) based on the user\'s request and provided context.
@@ -55,15 +60,15 @@ Your task is to write compelling narrative prose (story text, dialogue, descript
 User Task: {task_description}
 (This task might specify a chapter number, scene, or a general prose generation request based on the outlines.)
 
-Available Context:
-1. Detailed Chapter Outlines:
-{json.dumps(chapter_outlines_for_prompt, indent=2) if chapter_outlines_for_prompt else "No detailed chapter outlines provided."}
+Available Context (our story ingredients! \\o/):
+1. Detailed Chapter Outlines (our roadmap to awesomeness! ^_^):
+{json.dumps(chapter_outlines_for_prompt, indent=2) if chapter_outlines_for_prompt else "No detailed chapter outlines yet... time to get creative! =P"}
 
-2. Character Profiles:
-{json.dumps(character_profiles_for_prompt, indent=2) if character_profiles_for_prompt else "No character profiles provided."}
+2. Character Profiles (meet our amazing cast! =D):
+{json.dumps(character_profiles_for_prompt, indent=2) if character_profiles_for_prompt else "No character profiles yet... time to make some friends! O.o"}
 
-3. World Anvil / Building Notes:
-{json.dumps(world_anvil_for_prompt, indent=2) if world_anvil_for_prompt else "No world building notes provided."}
+3. World Anvil / Building Notes (our magical playground! \\o/):
+{json.dumps(world_anvil_for_prompt, indent=2) if world_anvil_for_prompt else "No world building notes yet... let's create something epic! x.x"}
 
 Based on the user task and all the provided context, please write the prose.
 Focus on vivid descriptions, engaging dialogue, and advancing the plot as per the outlines.
@@ -74,12 +79,12 @@ The value of "generated_prose" must be a LIST of objects, where each object conf
 {example_prose_schema_json}
 
 Each object in the list should represent a distinct block of prose (e.g., a scene, a part of a chapter).
-- "chapter_number": (Required, integer) The chapter this prose belongs to.
-- "scene_number": (Optional, integer) If applicable, the scene number within the chapter.
-- "prose_text": (Required, string) The actual generated prose.
-- "version": (Required, integer, default 1) The version number of this prose block.
-- "status": (Optional, string, e.g., "draft", "revised") Current status of this prose.
-- "notes": (Optional, string) Any notes related to this prose.
+- "chapter_number": (Required, integer) Which chapter are we writing? O.o
+- "scene_number": (Optional, integer) Scene number (if we're being super organized! =P)
+- "prose_text": (Required, string) The actual story magic! \\o/
+- "version": (Required, integer, default 1) Draft number (because first drafts are never perfect x.x)
+- "status": (Optional, string, e.g., "draft", "revised") How polished is this gem? ^_^
+- "notes": (Optional, string) Any extra thoughts for future us! =D
 
 Example of expected output format:
 {

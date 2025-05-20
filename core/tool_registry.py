@@ -1,48 +1,67 @@
 # core/tool_registry.py
-"""Tool registry for managing and accessing tools."""
-from typing import Dict, Any, Optional, List, Union
+# Welcome to our magical toolbox! Where dreams and functions come together! \\o/
+"""Tool registry for managing and accessing tools. Think of it as a swiss army knife on steroids! =D"""
+from typing import Dict, Any, Optional, List, Union  # Our trusty type-checking friends ^_^
 import logging
 import json
-from datetime import datetime
+from datetime import datetime  # Time tracking, because timing is everything! >.>
 
-from .debug_utils import DebugInfo, log_debug_info
-from tools.base_tool import BaseTool
+from .debug_utils import DebugInfo, log_debug_info  # For when we need to leave breadcrumbs x.x
+from tools.base_tool import BaseTool  # The parent of all tools! \o/
 
 class ToolRegistry:
-    """Registry for managing and using tools."""
+    """
+    Welcome to our epic toolbox! Here's where the magic happens! =D
+    A home for all our shiny tools, where they live in perfect harmony ^_^
+    Just don't ask about that one time we lost the calculator... >.>
+    """
     
     def __init__(self, config: Optional[Union[Dict[str, Any], Any]] = None):
-        """Initialize the tool registry with config."""
+        """
+        Time to set up our magical toolbox! Let's get organized! \\o/
+        
+        Args:
+            config: Our settings and secrets (optional, but who doesn't love options? =P)
+        """
+        # Config can be fancy or simple - we don't judge! ^_^
         self.config = {} if config is None else config
         if not isinstance(config, dict) and config is not None:
-            if hasattr(config, 'model_dump'):
+            if hasattr(config, 'model_dump'):  # Ooh, a Pydantic model! Fancy! =P
                 self.config = config.model_dump()
-            elif hasattr(config, 'dict'):
+            elif hasattr(config, 'dict'):  # Old school but still cool \o/
                 self.config = config.dict()
         
-        # Initialize core components
-        self.tools: Dict[str, BaseTool] = {}
-        self.logger = logging.getLogger('WITS.ToolRegistry')
+        # Our tools need a cozy home! Don't let them get lost x.x
+        self.tools: Dict[str, BaseTool] = {}  # Empty toolbox... for now! =D
+        self.logger = logging.getLogger('WITS.ToolRegistry')  # For when things go boom >.>
     
     def register_tool(self, tool_instance: BaseTool) -> None:
-        """Register a tool with the registry."""
+        """
+        Welcome a new tool to our happy family! \\o/
+        
+        Args:
+            tool_instance: The new tool that wants to join our party! ^_^
+            
+        Raises:
+            TypeError: When someone tries to sneak in a non-tool (Nice try! x.x)
+        """
         if not isinstance(tool_instance, BaseTool):
-            raise TypeError(f"Tool must be an instance of BaseTool, got {type(tool_instance)}")
+            raise TypeError(f"Hey now! That's not a proper tool! We got {type(tool_instance)} instead x.x")
         
         try:
             if tool_instance.name in self.tools:
-                self.logger.warning(f"Tool '{tool_instance.name}' already registered, overwriting.")
+                self.logger.warning(f"Whoops! Tool '{tool_instance.name}' is already here! Time for an upgrade! =P")
             
-            self.tools[tool_instance.name] = tool_instance
+            self.tools[tool_instance.name] = tool_instance  # Welcome to the family! ^_^
             
-            # Log registration event
+            # Time to document this historic moment! O.o
             debug_info = DebugInfo(
                 timestamp=datetime.now().isoformat(),
                 component="ToolRegistry",
                 action="register_tool",
                 details={
                     "tool_name": tool_instance.name,
-                    "total_tools": len(self.tools)
+                    "total_tools": len(self.tools)  # Look at our growing collection! \\o/
                 },
                 duration_ms=0,
                 success=True

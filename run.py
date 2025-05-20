@@ -17,10 +17,12 @@ import uuid
 import yaml
 from pathlib import Path
 
-from core.config import AppConfig
+from core.config import AppConfig, MemoryManagerConfig # Added MemoryManagerConfig
 from core.llm_interface import LLMInterface
 from core.memory_manager import MemoryManager
-from agents.orchestrator_agent import OrchestratorAgent
+from core.schemas import MemoryConfig # Added MemoryConfig
+from agents.book_orchestrator_agent import BookOrchestratorAgent as OrchestratorAgent
+from agents.base_orchestrator_agent import BaseOrchestratorAgent
 from agents.wits_control_center_agent import WitsControlCenterAgent
 
 # Global logger
@@ -63,7 +65,17 @@ async def start_wits_cli(config: AppConfig):
     
     try:
         # Initialize memory manager
-        memory_manager = MemoryManager(config.memory_manager)
+        memory_manager_config_data = config.memory_manager
+        core_memory_config = MemoryConfig(
+            vector_model=memory_manager_config_data.vector_model,
+            memory_file_path=memory_manager_config_data.memory_file_path, 
+            debug_enabled=memory_manager_config_data.debug_enabled,
+            # Ensure all fields from MemoryConfig in schemas.py are covered
+            # Assuming debug_components from config.yaml's MemoryManagerConfig 
+            # is compatible with schemas.py's MemoryConfig's debug_components field.
+            debug_components=memory_manager_config_data.debug_components 
+        )
+        memory_manager = MemoryManager(config=core_memory_config)
         await memory_manager.initialize_db()
         
         delegation_targets_map = {}
@@ -104,20 +116,30 @@ async def start_wits_cli(config: AppConfig):
                     if agent_profile.agent_specific_params:
                         agent_constructor_params.update(agent_profile.agent_specific_params)
 
-                    if issubclass(AgentClass, OrchestratorAgent):
+                    # Ensure memory_manager is passed if the agent is an orchestrator or needs it
+                    if issubclass(AgentClass, BaseOrchestratorAgent) or agent_name == "general_orchestrator":
                         agent_constructor_params['memory_manager'] = memory_manager
-                        agent_constructor_params['delegation_targets'] = {}
+                        # Default delegation_targets for orchestrators if not specified
+                        if 'delegation_targets' not in agent_constructor_params:
+                            agent_constructor_params['delegation_targets'] = {}
                         
                         if hasattr(agent_profile, 'max_iterations') and agent_profile.max_iterations is not None:
                             agent_constructor_params['max_iterations'] = agent_profile.max_iterations
-                        elif 'max_iterations' not in agent_constructor_params:
+                        elif 'max_iterations' not in agent_constructor_params: # Default max_iterations for orchestrators
                             agent_constructor_params['max_iterations'] = 5
-                    else:
+                      # Handle WitsControlCenterAgent specific params
+                    elif AgentClass.__name__ == "WitsControlCenterAgent":
+                        agent_constructor_params['memory_manager'] = memory_manager
+                        # Remove max_iterations as WCCA doesn't use it
                         agent_constructor_params.pop('max_iterations', None)
-                        if AgentClass.__name__ == "EngineerAgent":
+                        # orchestrator_delegate will be set after main_orchestrator_instance is created
+
+                    else: # For other specialized agents
+                        agent_constructor_params.pop('max_iterations', None) # Not typically used by non-orchestrators
+                        if agent_profile.agent_specific_params and agent_profile.agent_specific_params.get('memory_manager') is True:
                             agent_constructor_params['memory_manager'] = memory_manager
-                        elif 'memory_manager' in agent_constructor_params and agent_constructor_params['memory_manager'] is True:
-                            agent_constructor_params['memory_manager'] = memory_manager
+                        elif AgentClass.__name__ == "EngineerAgent": # EngineerAgent specifically needs memory_manager
+                             agent_constructor_params['memory_manager'] = memory_manager
 
                     agent_instance = AgentClass(**agent_constructor_params)
                     delegation_targets_map[agent_name] = agent_instance
@@ -195,18 +217,11 @@ async def start_wits_cli(config: AppConfig):
 
                 wcca_constructor_params = {
                     'agent_name': wcca_profile_name,
-                    'config': wcca_agent_profile,
+                    'config': config, # Pass the global AppConfig object to WCCA
                     'llm_interface': wcca_llm_interface,
                     'memory_manager': memory_manager,
                     'orchestrator_delegate': main_orchestrator_instance
                 }
-
-                # Only update with specific params that match WCCA's __init__ signature
-                if wcca_agent_profile.agent_specific_params:
-                    # Filter out max_iterations since WCCA doesn't use it
-                    filtered_params = {k: v for k, v in wcca_agent_profile.agent_specific_params.items() 
-                                    if k != 'max_iterations'}
-                    wcca_constructor_params.update(filtered_params)
 
                 wcca = WCCAClass(**wcca_constructor_params)
                 logger.info("WitsControlCenterAgent initialized for CLI.")

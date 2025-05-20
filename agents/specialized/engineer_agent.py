@@ -34,12 +34,13 @@ class CodeModificationResponse(BaseModel):
 
 class EngineerAgent(BaseAgent):
     """
-    Specialized agent for code analysis, improvement, and modification tasks.
-    This agent is responsible for:
-    1. Analyzing existing code for potential improvements
-    2. Proposing and implementing code changes
-    3. Managing git operations for code changes
-    4. Ensuring code quality and following best practices
+    Your friendly neighborhood code wizard! Here to make codebases better ^_^
+    
+    I'm responsible for:
+    1. Finding ways to make code prettier (code review time! \\o/)
+    2. Actually fixing the code (please don't break anything x.x)
+    3. Dealing with git stuff (commits are forever, no pressure lol)
+    4. Making sure everything follows the rules (I'm like a code style cop =P)
     """
 
     def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any, tool_registry: Optional[Any] = None):

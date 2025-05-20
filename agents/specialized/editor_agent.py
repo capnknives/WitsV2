@@ -14,18 +14,20 @@ class EditorAgent(BaseAgent):
         super().__init__(agent_name, config, llm_interface, memory_manager, tool_registry)
         self.llm_model_name = self.llm.model_name
         self.logger.info(f"'{self.agent_name}' initialized. It will use the LLM model: {self.llm_model_name} from its LLMInterface.")
-
+    
     @staticmethod
     def get_description() -> str:
-        return "An agent specialized in reviewing and editing chapter prose. It takes a specific chapter's prose, applies edits based on the task, and returns the updated chapter prose object and/or revision notes in a structured JSON format."
+        return "I'm the grammar police and style guru! \\o/ I take your prose, make it shine, " + \
+               "and return it all nicely packaged in JSON (because we're fancy like that =D). " + \
+               "No typo is safe from my watchful eye! ^_^"
 
     @staticmethod
     def get_config_schema() -> Dict[str, Any]:
         return {
-            "type": "object",
+            "type": "object",  # Keep it structured, keep it clean! >.>
             "properties": {
-                "description": {"type": "string"},
-                "additional_instructions": {"type": "string"}
+                "description": {"type": "string"},  # Tell me what you want, what you really really want!
+                "additional_instructions": {"type": "string"}  # Extra wisdom for the editing process =P
             }
         }
 

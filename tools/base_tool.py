@@ -1,53 +1,69 @@
-# tools/base_tool.py
-from abc import ABC, abstractmethod
+# Welcome to the birthplace of all tools! This is where the magic begins! \\o/
+from abc import ABC, abstractmethod  # Abstract classes, because we're fancy like that! ^_^
 import logging
-import time
-import traceback
+import time  # Time tracking (because we care about performance... sometimes x.x)
+import traceback  # For when things go boom! >.>
 from datetime import datetime
-from typing import Any, ClassVar, Dict, Type, Optional
-from pydantic import BaseModel, create_model
+from typing import Any, ClassVar, Dict, Type, Optional  # Our type-safety friends! =D
+from pydantic import BaseModel, create_model  # Pydantic, our data validation bestie! \\o/
 
-from core.debug_utils import DebugInfo, log_debug_info
+from core.debug_utils import DebugInfo, log_debug_info  # Debug powers, activate! O.o
 
 class BaseTool(ABC):
     """
-    Base class for all tools in the WITS-NEXUS v2 system.
+    The awesome parent of all our tools! Let's build some cool stuff ^_^
+    Every tool in our toolkit inherits from this super-cool base class! \\o/
     
-    Tools provide specific capabilities to agents, such as web search,
-    file operations, or calculations. Each tool is defined by:
+    Think of this as the ultimate tool template:
     
-    1. A name (for lookup and serialization)
-    2. A description (for the LLM to understand when to use it)
-    3. An arguments schema (Pydantic model defining expected inputs)
-    4. An async execute method that performs the actual functionality
+    1. name: What we call it (gotta be unique or things break! x.x)
+    2. description: So the LLM knows when to use it =D
+    3. args_schema: All the stuff it needs to work (Pydantic keeps us safe \\o/)
+    4. execute: Where the magic happens! *waves wand* ✨
     
-    Tools can be called by the orchestrator agent when it determines
-    a specific capability is needed to achieve a goal.
+    The orchestrator can grab any tool when it needs something done.
+    Pretty neat, huh? =P
+    
+    Just remember:
+    - Always give your tool a unique name (no copycats allowed! >.>)
+    - Write clear descriptions (future you will thank you! ^_^)
+    - Define your args properly (Pydantic is your friend! =D)
+    - Make execute() do something awesome! \\o/
     """
     
-    name: ClassVar[str]  # Name of the tool (must be unique in registry)
-    description: ClassVar[str]  # Description of what the tool does
-    args_schema: ClassVar[Type[BaseModel]]  # Pydantic schema for arguments
+    name: ClassVar[str]  # Our tool's special name (make it memorable! ^_^)
+    description: ClassVar[str]  # What does it do? Make it clear! =D
+    args_schema: ClassVar[Type[BaseModel]]  # The recipe for success! \\o/
     
     @abstractmethod
     async def execute(self, args: BaseModel) -> Any:
         """
-        Execute the tool's functionality with the given arguments.
+        Time to make the magic happen! This is where tools do their thing! \\o/
         
         Args:
-            args: An instance of the tool's args_schema Pydantic model
+            args: Everything the tool needs (checked by Pydantic for safety! ^_^)
             
         Returns:
-            Any: The result of the tool execution (often a Pydantic response model)
+            Any: The result of our magical operation! =D
+            
+        Remember:
+        - Always validate your inputs (trust no one! >.>)
+        - Handle errors gracefully (no explosions please! x.x)
+        - Return something useful (undefined is not a function! O.o)
         """
         pass
     
     def get_llm_schema(self) -> Dict[str, Any]:
         """
-        Get the tool's schema in a format suitable for LLM prompts.
+        Show off our tool's capabilities to the LLM! Time to shine! \\o/
         
         Returns:
-            Dict[str, Any]: JSON schema representation of the tool
+            Dict[str, Any]: Our tool's resume in JSON format! =D
+            
+        This is like a dating profile for our tool:
+        - Here's my name ^_^
+        - This is what I do \\o/
+        - These are the things I need =P
         """
         # Create a schema with name, description, and parameters
         schema = {

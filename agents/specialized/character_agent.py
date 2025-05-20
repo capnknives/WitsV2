@@ -3,32 +3,40 @@ import json
 import logging
 from agents.base_agent import BaseAgent
 from agents.book_writing_schemas import CharacterProfileSchema
-from core.json_utils import safe_json_loads, balance_json_braces # For typing and validation
+from core.json_utils import safe_json_loads, balance_json_braces  # For when JSON gets a bit too wild >.>
 from core.schemas import StreamData
+
+# Our magical character factory! Let's breathe life into some awesome personas ^_^ 
 
 class CharacterDevelopmentAgent(BaseAgent):
     async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
+        # Time to put on our character designer hat! \o/
         self.logger.info(f"'{self.agent_name}' received task for character development: {task_description}")
         if context is None:
-            context = {}
+            context = {}  # Empty canvas, endless possibilities! =D
 
+        # Let's see what we're working with here ^_^
         book_state_slice = context.get("book_writing_state_slice", {})
         project_name = book_state_slice.get("project_name", "Unknown Project")
         existing_profiles_data = book_state_slice.get("character_profiles", [])
         
+        # Gathering our cast of characters! *drum roll* 
         existing_chars_summary_for_prompt = []
         for prof in existing_profiles_data:
             if isinstance(prof, dict):
                 existing_chars_summary_for_prompt.append(f"Name: {prof.get('name', 'N/A')}, Role: {prof.get('role_in_story', 'N/A')}")
 
+        # Time to get creative! Our characters won't write themselves (well, technically they will... O.o)
         system_prompt = (
-            f"You are an expert character creator for the book project '{project_name}'. "
-            "Your task is to generate or update detailed and compelling character profiles based on user requests. "
-            "Ensure each profile is rich with information that can be used to drive a narrative."
+            f"Time to create some epic characters for '{project_name}'! \\o/ "
+            "You're the ultimate character creator - make them memorable, make them real! ^_^ "
+            "Pack those profiles with juicy details that'll make the story come alive! No flat characters allowed x.x"
         )
 
+        # Here's our character template - gotta keep things organized! =P
         example_json_structure = CharacterProfileSchema.schema_json(indent=2)
 
+        # The big ask! *dramatic music intensifies*
         user_prompt = (
             f"Task: {task_description}\n\n"
             f"Project: '{project_name}'\n"
@@ -42,10 +50,11 @@ class CharacterDevelopmentAgent(BaseAgent):
         )
 
         try:
-            self.logger.debug(f"CharacterDevelopmentAgent LLM System Prompt:\n{system_prompt}")
-            self.logger.debug(f"CharacterDevelopmentAgent LLM User Prompt:\n{user_prompt}")
+            # Let's see what magic the LLM conjures up! *waves wand* ✨
+            self.logger.debug(f"Here's what I'm telling the LLM (system mode): {system_prompt}")
+            self.logger.debug(f"And here's what we want it to do: {user_prompt}")
 
-            yield StreamData(type="info", content="Generating character profiles...")
+            yield StreamData(type="info", content="Time to dream up some amazing characters! =D")
 
             llm_response_str = await self.llm.chat_completion_async(
                 messages=[
