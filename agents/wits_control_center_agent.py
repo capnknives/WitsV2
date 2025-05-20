@@ -1,8 +1,7 @@
-﻿import asyncio
-import json
+﻿import json
 import logging
 import uuid
-from typing import AsyncGenerator, List, Dict, Optional, Union, Any
+from typing import AsyncGenerator, List, Dict, Optional
 import time
 
 from agents.base_agent import BaseAgent
@@ -44,10 +43,11 @@ class WitsControlCenterAgent(BaseAgent):
             specialized_agents: The cool specialists we can call on (optional)
         """
         super().__init__(agent_name, config, llm_interface, memory_manager)
+        # Ensure memory is set properly
+        self.memory = memory_manager
         self.orchestrator_delegate = orchestrator_delegate
         self.specialized_agents = specialized_agents or {}  # Empty dict if None provided =)
         self.logger = logging.getLogger(f"WITS.{self.__class__.__name__}")
-        
         # Use the llm_interface's model name first, fall back to config if needed
         self.control_center_model_name = (
             llm_interface.model_name or 
@@ -244,9 +244,14 @@ Output only the JSON object, nothing else!
 
             # Set up options for our LLM friend
             options = {}
-            if hasattr(self.config_full, 'default_temperature'):
-                options["temperature"] = self.config_full.default_temperature
-                self.logger.debug(f"Using temperature {options['temperature']} (feeling creative today! ^_^)")
+            # Access temperature from the agent's own profile (self.config which is self.agent_profile)
+            if self.config and hasattr(self.config, 'temperature') and self.config.temperature is not None:
+                options["temperature"] = self.config.temperature
+                self.logger.debug(f"Using temperature {options['temperature']} from WCCA profile (feeling creative today! ^_^)")
+            # Fallback to a default if not in profile (though it should be)
+            elif "temperature" not in options:
+                options["temperature"] = 0.5 # A sensible default for WCCA
+                self.logger.debug(f"WCCA profile temperature not found, using default {options['temperature']}")
 
             # Ask the LLM what we should do (fingers crossed! x.x)
             llm_response = await self.llm.chat_completion_async(

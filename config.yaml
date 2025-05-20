@@ -30,7 +30,6 @@ models:
 # Router Configuration (Orchestrator is usually the primary handler)
 router:
   fallback_agent: "orchestrator_agent" # Key for your orchestrator agent instance
-  
 
 # Web Interface Settings (Flask/FastAPI)
 web_interface:
@@ -42,8 +41,6 @@ web_interface:
   max_file_size: 10 # In MB
   allowed_file_types: ["text/plain", "application/json", "application/yaml", "text/yaml"]
   file_upload_directory: "uploads" # Directory to save uploaded files
-  
-
 
 ollama_url: "http://localhost:11434"
 llm_model_name: "llama3:latest" # Default model
@@ -91,7 +88,8 @@ agent_profiles:
       - "book_prose_generator"
       - "book_editor"
     agent_specific_params:
-      max_iterations: 20  book_plotter:
+      max_iterations: 20
+  book_plotter:
     agent_class: "agents.specialized.plotter_agent.PlotterAgent"
     agent_type: "plotting"
     display_name: "Book Plotter"
@@ -153,6 +151,14 @@ agent_profiles:
     max_iterations: 10
     ollama_options:
       num_ctx: 8192
+
+  wits_control_center:
+    agent_class: "agents.wits_control_center_agent.WitsControlCenterAgent"
+    display_name: "WITS Control Center"
+    description: "Manages user interaction and orchestrates tasks in CLI mode."
+    llm_model_name: "openhermes:latest" # Or any suitable model
+    temperature: 0.5
+    agent_specific_params: {}
 
 # Tool Configurations
 tool_configs:

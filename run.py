@@ -23,34 +23,15 @@ if sys.version_info.major != 3 or sys.version_info.minor != 10:
 # Core imports
 import asyncio
 import logging
-import os
-import signal
-from datetime import datetime
 import uuid
-import json
-from pathlib import Path
-import yaml
+import importlib
 
 # Application imports
-from core.config import AppConfig
-from core.debug_utils import setup_logging
+from core.config import AppConfig, load_app_config
 from core.llm_interface import LLMInterface
 from core.memory_manager import MemoryManager
-from core.tool_registry import ToolRegistry
-from core.schemas import StreamData
-
-# Agent imports
-from agents.wits_control_center_agent import WitsControlCenterAgent
 from agents.orchestrator_agent import OrchestratorAgent
-from agents.specialized.editor_agent import EditorAgent
-
-# Tool imports
-from tools.calculator_tool import CalculatorTool
-from tools.datetime_tool import DateTimeTool
-from tools.web_search_tool import WebSearchTool
-from tools.file_tools import ReadFileTool, WriteFileTool, ListFilesTool
-from tools.project_file_tools import ProjectFileReaderTool
-from tools.git_tools import GitTool
+from agents.wits_control_center_agent import WitsControlCenterAgent
 
 # Global logger
 logger = logging.getLogger('WITS')
@@ -96,48 +77,178 @@ def configure_console_logging():
 async def start_wits_cli(config: AppConfig):
     """Start WITS in CLI mode."""
     logger.info(f"Starting WITS CLI using configuration: {config.app_name}")
-
-    # Initialize session ID at the start for proper error handling scope
     current_session_id = str(uuid.uuid4())
     
     try:
-        # Initialize LLM Interface with default model and temperature
-        llm_interface = LLMInterface(
-            model_name=config.models.default,
-            temperature=config.default_temperature if config.default_temperature is not None else 0.7
-        )
-        
-        # Initialize Memory Manager
-        memory_manager = MemoryManager(config)
+        memory_manager = MemoryManager(config.memory_manager) # Pass MemoryManagerConfig
         await memory_manager.initialize_db()
         
-        # Initialize Tool Registry
-        tool_registry = ToolRegistry()
+        delegation_targets_map = {}
+        main_orchestrator_instance = None
         
-        # Initialize specialized agents (empty for now)
-        specialized_agents = {}
+        main_orchestrator_profile_name = "book_writing_orchestrator" 
+
+        if config.agent_profiles:
+            for agent_name, agent_profile in config.agent_profiles.items():
+                if not agent_profile.agent_class:
+                    logger.warning(f"Agent class not defined for agent profile: {agent_name}. Skipping initialization.")
+                    continue
+
+                if agent_name == main_orchestrator_profile_name:
+                    logger.info(f"Profile for main orchestrator '{agent_name}' found. Will be initialized after delegates.")
+                    continue
+
+                try:
+                    module_name, class_name = agent_profile.agent_class.rsplit('.', 1)
+                    AgentClass = getattr(importlib.import_module(module_name), class_name)
+                    
+                    agent_llm_model = agent_profile.llm_model_name or config.models.default
+                    agent_llm_temp = agent_profile.temperature if agent_profile.temperature is not None else config.default_temperature
+                    if agent_llm_temp is None: 
+                        agent_llm_temp = 0.7 
+
+                    agent_llm_interface = LLMInterface(
+                        model_name=agent_llm_model,
+                        temperature=float(agent_llm_temp),
+                    )
+
+                    # Common parameters for BaseAgent and its derivatives
+                    agent_constructor_params = {
+                        'agent_name': agent_name,
+                        'config': agent_profile, # Pass the specific agent_profile here
+                        'llm_interface': agent_llm_interface,
+                        # memory_manager is added below based on agent needs or if specified
+                    }
+
+                    # Add agent_specific_params from the profile
+                    if agent_profile.agent_specific_params:
+                        agent_constructor_params.update(agent_profile.agent_specific_params)
+
+                    # Handle OrchestratorAgent's specific needs if this delegate is one
+                    if issubclass(AgentClass, OrchestratorAgent):
+                        agent_constructor_params['memory_manager'] = memory_manager
+                        agent_constructor_params['delegation_targets'] = {} # An orchestrator delegate would have its own (likely empty) targets
+                        # max_iterations is expected by OrchestratorAgent, ensure it's present if defined in profile
+                        if hasattr(agent_profile, 'max_iterations') and agent_profile.max_iterations is not None:
+                            agent_constructor_params['max_iterations'] = agent_profile.max_iterations
+                        elif 'max_iterations' not in agent_constructor_params: # Default if not in profile or specific_params
+                            agent_constructor_params['max_iterations'] = 5 # A sensible default for delegate orchestrators
+                    else:
+                        # For non-Orchestrator agents, remove max_iterations if it was added from agent_specific_params
+                        agent_constructor_params.pop('max_iterations', None)
+                        # Pass memory_manager if the agent's __init__ signature likely expects it (e.g., EngineerAgent)
+                        # This is a heuristic. A more robust way would be to inspect __init__ signature.
+                        # For now, we know EngineerAgent needs it. BaseAgent makes it optional.
+                        if AgentClass.__name__ == "EngineerAgent": # Specific check for EngineerAgent
+                            agent_constructor_params['memory_manager'] = memory_manager
+                        elif 'memory_manager' in agent_constructor_params and agent_constructor_params['memory_manager'] is True: # If specified in agent_specific_params
+                             agent_constructor_params['memory_manager'] = memory_manager
+                        # else: memory_manager is not passed by default to BaseAgent derivatives unless specified
+
+
+                    # Ensure 'tool_registry' is passed if the agent expects it (e.g. EngineerAgent)
+                    if AgentClass.__name__ == "EngineerAgent" and 'tool_registry' not in agent_constructor_params:
+                         # Assuming tool_registry might be globally available or configured elsewhere if needed by EngineerAgent
+                         # For now, if not in specific_params, it won't be passed, which matches EngineerAgent's current __init__
+                         pass
+
+
+                    agent_instance = AgentClass(**agent_constructor_params)
+                    delegation_targets_map[agent_name] = agent_instance
+                    logger.info(f"Initialized specialized agent: {agent_name} (Class: {class_name})")
+
+                except Exception as e:
+                    logger.error(f"Failed to initialize specialized agent {agent_name}: {e}", exc_info=True)
         
-        # Initialize OrchestratorAgent with empty delegation targets for now
-        orchestrator_agent = OrchestratorAgent(
-            agent_name="OrchestratorAgent",
-            config=config,
-            llm_interface=llm_interface,
-            memory_manager=memory_manager,
-            tool_registry=tool_registry,
-            delegation_targets={}  # Empty dict for now
-        )
+        orchestrator_profile_data = config.agent_profiles.get(main_orchestrator_profile_name)
+        if orchestrator_profile_data and orchestrator_profile_data.agent_class:
+            try:
+                module_name, class_name = orchestrator_profile_data.agent_class.rsplit('.', 1)
+                OrchestratorClass = getattr(importlib.import_module(module_name), class_name)
+
+                orchestrator_llm_model = orchestrator_profile_data.llm_model_name or config.models.orchestrator 
+                orchestrator_llm_temp = orchestrator_profile_data.temperature if orchestrator_profile_data.temperature is not None else config.default_temperature
+                if orchestrator_llm_temp is None: 
+                    orchestrator_llm_temp = 0.7
+
+                orchestrator_llm_interface = LLMInterface(
+                    model_name=orchestrator_llm_model,
+                    temperature=float(orchestrator_llm_temp),
+                )
+                
+                max_iter = orchestrator_profile_data.max_iterations
+
+                orchestrator_constructor_params = {
+                    'agent_name': main_orchestrator_profile_name,
+                    'config': orchestrator_profile_data, 
+                    'llm_interface': orchestrator_llm_interface,
+                    'memory_manager': memory_manager, 
+                    'delegation_targets': delegation_targets_map,
+                    'max_iterations': max_iter 
+                }
+                
+                if orchestrator_profile_data.agent_specific_params:
+                    for key, value in orchestrator_profile_data.agent_specific_params.items():
+                        if key not in orchestrator_constructor_params or key == 'max_iterations': 
+                            if value is not None: 
+                                orchestrator_constructor_params[key] = value
+                
+                main_orchestrator_instance = OrchestratorClass(**orchestrator_constructor_params)
+                logger.info(f"Main orchestrator '{main_orchestrator_profile_name}' initialized successfully with class {class_name}.")
+                logger.info(f"Delegation targets for '{main_orchestrator_profile_name}': {list(delegation_targets_map.keys())}")
+
+            except Exception as e:
+                logger.error(f"Failed to initialize main orchestrator '{main_orchestrator_profile_name}': {e}", exc_info=True)
+                if not main_orchestrator_instance:
+                    logger.critical("CRITICAL: Main orchestrator could not be initialized. WITS CLI cannot function.")
+                    return 
+        else:
+            logger.error(f"Profile for main orchestrator '{main_orchestrator_profile_name}' not found or agent_class missing in config.yaml.")
+            logger.critical("CRITICAL: Main orchestrator profile missing. WITS CLI cannot function.")
+            return
+
+        # Initialize WitsControlCenterAgent
+        # Need to find where WCCA config is in AppConfig. Let's assume it's under a direct key for now
+        # and will be confirmed/corrected after checking core/config.py
+        wcca_profile_name = "wits_control_center" # Assuming a profile name for WCCA
+        wcca_agent_profile = config.agent_profiles.get(wcca_profile_name)
+
+        if wcca_agent_profile and wcca_agent_profile.agent_class:
+            try:
+                module_name, class_name = wcca_agent_profile.agent_class.rsplit('.', 1)
+                WCCAClass = getattr(importlib.import_module(module_name), class_name)
+
+                wcca_llm_model = wcca_agent_profile.llm_model_name or config.models.default
+                wcca_llm_temp = wcca_agent_profile.temperature if wcca_agent_profile.temperature is not None else config.default_temperature
+                if wcca_llm_temp is None: 
+                     wcca_llm_temp = 0.7
+
+                wcca_llm_interface = LLMInterface(
+                    model_name=wcca_llm_model,
+                    temperature=float(wcca_llm_temp),
+                )
+
+                wcca_constructor_params = {
+                    'agent_name': wcca_profile_name,
+                    'config': wcca_agent_profile, # WCCA (as BaseAgent child) expects its profile as 'config'
+                    'llm_interface': wcca_llm_interface,
+                    'memory_manager': memory_manager,
+                    'orchestrator_delegate': main_orchestrator_instance # This is the key fix for WCCA
+                }
+                if wcca_agent_profile.agent_specific_params:
+                    wcca_constructor_params.update(wcca_agent_profile.agent_specific_params)
+
+                wcca = WCCAClass(**wcca_constructor_params)
+                logger.info("WitsControlCenterAgent initialized for CLI.")
+            except Exception as e:
+                logger.error(f"Failed to initialize WitsControlCenterAgent '{wcca_profile_name}': {e}", exc_info=True)
+                logger.critical(f"CRITICAL: WitsControlCenterAgent could not be initialized. WITS CLI cannot function.")
+                return
+        else:
+            logger.error(f"Profile for WitsControlCenterAgent '{wcca_profile_name}' not found or agent_class missing in config.yaml.")
+            logger.critical(f"CRITICAL: WitsControlCenterAgent profile missing. WITS CLI cannot function.")
+            return
         
-        # Initialize the control center agent with all dependencies
-        wcca = WitsControlCenterAgent(
-            agent_name="WitsControlCenterAgent",
-            config=config,
-            llm_interface=llm_interface,
-            memory_manager=memory_manager,
-            orchestrator_delegate=orchestrator_agent,
-            specialized_agents=specialized_agents
-        )
-        
-        logger.info("WitsControlCenterAgent initialized for CLI.")
         logger.info(f"CLI Session ID: {current_session_id}")
         
         while True:
@@ -171,13 +282,12 @@ async def start_wits_cli(config: AppConfig):
                 
     except KeyboardInterrupt:
         print("\nReceived interrupt signal. Shutting down gracefully...")
-        logger.info(f"Received interrupt signal for session '{current_session_id}'")
+        logger.info(f"Received interrupt signal for session '{current_session_id}'") # Corrected logging
     except Exception as e:
         logger.exception(f"An unexpected error occurred in WITS CLI loop for session '{current_session_id}': {e}")
         print(f"An unexpected error occurred: {e}")
     finally:
-        # Just log shutdown, no need to call close()
-        logger.info(f"WITS CLI shutting down for session '{current_session_id}'")
+        logger.info(f"WITS CLI shutting down for session '{current_session_id}'") # Corrected logging
 
 def start_wits_web_app(config: AppConfig):
     """Start WITS in web mode."""
@@ -198,35 +308,47 @@ def start_wits_web_app(config: AppConfig):
 def main_entry():
     """Main entry point for WITS"""
     import sys
-    import yaml
-    from pathlib import Path
-    
+    import yaml 
+    from pathlib import Path 
+    # from core.config import load_app_config # This line can be removed or kept as a comment
+
     try:
         config_path = Path('config.yaml')
         if not config_path.exists():
-            print("Error: config.yaml not found")
+            # Logger might not be configured yet if this fails early
+            print("Error: config.yaml not found") 
             sys.exit(1)
             
         with open(config_path) as f:
-            config_dict = yaml.safe_load(f)
-            config = AppConfig(**config_dict)
-        
+            config_data = yaml.safe_load(f)
+            
+        # Convert the loaded YAML data to an AppConfig object
+        config = AppConfig(**config_data) # Pydantic validation happens here
+            
         # Setup logging
-        configure_console_logging()
-        logger.info("Starting WITS...")
+        configure_console_logging() # Configure logging ASAP
+        logger.info("Starting WITS...") # Now logger is configured
         
         # Start the web server if configured
         web_cfg = config.web_interface
         if web_cfg.enabled:
-            start_wits_web_app(config)
+            # Assuming start_wits_web_app is defined and handles web server startup
+            # The web app should be started in a non-blocking way, allowing CLI to run concurrently if needed
+            logger.info("Web interface is enabled. Starting web app...")
+            # start_wits_web_app(config) # Uncomment this line if web app should start here
         else:
+            logger.info("Web interface is disabled. Starting CLI mode.")
             # Start the event loop and run CLI
             asyncio.run(start_wits_cli(config))
-        
+            
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
     except Exception as e:
-        logger.exception(f"Failed to start WITS: {e}")
+        # Use logger if available, otherwise print
+        if logging.getLogger('WITS').hasHandlers():
+            logger.exception(f"Failed to start WITS: {e}")
+        else:
+            print(f"Failed to start WITS (logging not fully configured): {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

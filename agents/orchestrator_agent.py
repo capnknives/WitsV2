@@ -8,11 +8,12 @@ import uuid
 from typing import AsyncGenerator, List, Dict, Any, Optional, Union
 from pydantic import ValidationError # Added for handling Pydantic validation errors
 from datetime import datetime # Added for consistent timestamping
+from core.json_utils import safe_json_loads, balance_json_braces # Import JSON utilities
 
 from agents.base_agent import BaseAgent
 from core.config import AppConfig
 from core.llm_interface import LLMInterface
-from core.memory_manager import MemoryManager, MemorySegment
+from core.memory_manager import MemoryManager
 from core.schemas import LLMToolCall, OrchestratorLLMResponse, OrchestratorThought, OrchestratorAction, MemorySegmentContent, StreamData
 from core.tool_registry import ToolRegistry # Import ToolRegistry
 from .book_writing_schemas import BookWritingState # Simplified import
@@ -116,8 +117,6 @@ class OrchestratorAgent(BaseAgent):
                         action_details = f"Tool \\'{action_obj.tool_call.tool_name}\\' with args: {json.dumps(action_obj.tool_call.arguments)}"
                     elif action_obj.action_type == 'final_answer':
                         action_details = f"Final Answer: {action_obj.final_answer}"
-                    elif action_obj.action_type == 'delegate_to_agent' and action_obj.delegate_to_agent_key:
-                        action_details = f"Delegate to \\'{action_obj.delegate_to_agent_key}\\': {action_obj.delegated_task_description}"
 
                 formatted_steps.append(f"Step {i+1}:")
                 formatted_steps.append(f"  Thought: {thought_text}")
@@ -202,7 +201,7 @@ The JSON object should have two main keys: "thought_process" and "chosen_action"
         It MUST include a "final_answer" string field with the comprehensive response.
         Example: {{"action_type": "final_answer", "final_answer": "Based on studies, X is Y."}}
 
-Example of the full JSON output for delegating to an agent (as a tool_call):
+Example of the full JSON response for delegating to an agent (as a tool_call):
 ```json
 {{
   "thought_process": {{
@@ -222,7 +221,7 @@ Example of the full JSON output for delegating to an agent (as a tool_call):
 }}
 ```
 
-Example of the full JSON output for providing a final answer:
+Example of the full JSON response for providing a final answer:
 ```json
 {{
   "thought_process": {{
@@ -270,19 +269,13 @@ JSON Response:
     def _parse_llm_response(self, llm_response_str: str, session_id: str) -> Optional[OrchestratorLLMResponse]:
         try:
             self.logger.debug(f"Attempting to parse LLM response for session \\'{session_id}\\': {llm_response_str}")
-            
-            if llm_response_str.startswith("```json"):
-                llm_response_str = llm_response_str[len("```json"):].strip()
-            elif llm_response_str.startswith("```"):
-                llm_response_str = llm_response_str[len("```"):].strip()
-            
-            if llm_response_str.endswith("```"):
-                llm_response_str = llm_response_str[:-len("```")].strip()
-
-            # Fix any problematic escape characters in JSON string
-            # Convert \' to ' in the JSON string to avoid invalid escape sequences
-            llm_response_str = llm_response_str.replace("\\'", "'")
-            llm_json = json.loads(llm_response_str)
+              # Use the safe_json_loads function from our json_utils module
+            try:
+                llm_json = safe_json_loads(llm_response_str, session_id)
+            except json.JSONDecodeError as json_err:
+                # If still failing, log the error and return None to trigger a retry
+                self.logger.error(f"JSON parsing error in session '{session_id}': {json_err}")
+                return None
             
             # Check for project_name_extracted in LLM response
             if "project_name_extracted" in llm_json and llm_json["project_name_extracted"]:
@@ -366,10 +359,12 @@ JSON Response:
         if agent_name in self.delegation_targets:
             delegate_agent = self.delegation_targets[agent_name]
             self.logger.info(f"Delegating goal to agent '{agent_name}' for session '{session_id}': {goal}")
-            
+
             delegation_context = context.copy()
+            agent_specific_state_slice = {} # Initialize here
+
             if self.is_book_writing_mode and self.book_writing_state and agent_name.startswith("book_"):
-                agent_specific_state_slice = {}
+                # Populate agent_specific_state_slice based on agent_name
                 if agent_name == "book_plotter":
                     agent_specific_state_slice = {
                         "overall_plot_summary": self.book_writing_state.overall_plot_summary,
@@ -385,7 +380,7 @@ JSON Response:
                     if self.book_writing_state.world_building_notes:
                         agent_specific_state_slice["world_building_notes"] = self.book_writing_state.world_building_notes.model_dump()
                     else:
-                        agent_specific_state_slice["world_building_notes"] = WorldAnvilSchema().model_dump()
+                        agent_specific_state_slice["world_building_notes"] = WorldAnvilSchema().model_dump() # Ensure it's always a dict
                 elif agent_name == "book_prose_generator":
                     agent_specific_state_slice = {
                         "overall_plot_summary": self.book_writing_state.overall_plot_summary,
@@ -412,38 +407,67 @@ JSON Response:
                         agent_specific_state_slice["tone_guide"] = self.book_writing_state.tone_guide
                     agent_specific_state_slice["revision_notes"] = self.book_writing_state.revision_notes
 
-                if agent_specific_state_slice:
+                if agent_specific_state_slice: # Check if it was populated
                     delegation_context["book_writing_state_slice"] = agent_specific_state_slice
                     self.logger.info(f"Passing book_writing_state_slice to {agent_name} with keys: {list(agent_specific_state_slice.keys())}")
                 else:
-                    self.logger.info(f"No specific book_writing_state_slice prepared for {agent_name}, or agent is not a book agent.")
-            
+                    self.logger.info(f"No specific book_writing_state_slice prepared for {agent_name} (it might not be a book agent or no specific slice needed).")
+            else:
+                self.logger.info(f"Not in book writing mode or book_writing_state is None, or agent is not a book agent. No state slice passed for {agent_name}.")
+
+
             yield StreamData(type="info", content=f"Delegating to {agent_name} with goal: {goal}", tool_name=agent_name, tool_args={"goal": goal}, iteration=context.get("delegator_iteration"))
-            
-            delegation_context["session_id"] = session_id 
+
+            delegation_context["session_id"] = session_id
             delegation_context["delegator_agent"] = self.agent_name
 
             full_response_content = ""
-            try:
-                agent_response_stream = delegate_agent.run(task_description=goal, context=delegation_context)
-                last_yielded_stream_data: Optional[StreamData] = None
+            last_yielded_stream_data: Optional[StreamData] = None
 
-                # Handle async generators
-                if hasattr(agent_response_stream, '__aiter__'):
+            try:
+                agent_response = await delegate_agent.run(task_description=goal, context=delegation_context)
+
+                # If agent_response is already an async generator (has __aiter__)
+                if hasattr(agent_response, '__aiter__'):
                     try:
-                        async for response_chunk in agent_response_stream:
+                        async for response_chunk in agent_response:
                             if not isinstance(response_chunk, StreamData):
-                                self.logger.warning(f"Agent {agent_name} yielded non-StreamData object: {type(response_chunk)}. Skipping.")
-                                continue
+                                self.logger.warning(f"Agent {agent_name} yielded non-StreamData object: {type(response_chunk)}. Converting to StreamData.")
+                                response_chunk = StreamData(
+                                    type="content",
+                                    content=str(response_chunk),
+                                    tool_name=agent_name,
+                                    iteration=context.get("delegator_iteration")
+                                )
+
                             if response_chunk.iteration is None:
                                 response_chunk.iteration = context.get("delegator_iteration")
-                            yield response_chunk 
+
+                            yield response_chunk
                             last_yielded_stream_data = response_chunk
-                            if response_chunk.type in ["final_answer", "content", "tool_response"]:
+
+                            if response_chunk.type == "update_state" and isinstance(response_chunk.content, dict) and "book_writing_state_slice" in response_chunk.content:
+                                state_slice_update = response_chunk.content.get("book_writing_state_slice", {})
+                                if self.is_book_writing_mode and self.book_writing_state and state_slice_update:
+                                    self.logger.info(f"Received book_writing_state_slice update from {agent_name} with keys: {list(state_slice_update.keys())}")
+                                    self._update_book_writing_state_from_slice(state_slice_update, agent_name, session_id)
+                                    update_summary = f"Updated BookWritingState with data from {agent_name}."
+                                    if full_response_content: full_response_content += "\n" + update_summary
+                                    else: full_response_content = update_summary
+                            elif response_chunk.type in ["final_answer", "content", "tool_response"]:
+                                chunk_content_str = ""
                                 if isinstance(response_chunk.content, str):
-                                    full_response_content += response_chunk.content + "\n"
-                                elif isinstance(response_chunk.content, dict): 
-                                    full_response_content += json.dumps(response_chunk.content) + "\n"
+                                    chunk_content_str = response_chunk.content
+                                elif isinstance(response_chunk.content, dict):
+                                    try:
+                                        chunk_content_str = json.dumps(response_chunk.content)
+                                    except TypeError:
+                                        chunk_content_str = str(response_chunk.content)
+                                
+                                if chunk_content_str:
+                                    if full_response_content: full_response_content += "\n" + chunk_content_str
+                                    else: full_response_content = chunk_content_str
+
                     except Exception as stream_error:
                         error_msg = f"Error processing stream from agent {agent_name}: {str(stream_error)}"
                         self.logger.exception(error_msg)
@@ -455,79 +479,93 @@ JSON Response:
                             iteration=context.get("delegator_iteration")
                         )
                         return
-                else:
-                    # Handle coroutines and other response types
-                    try:
-                        agent_response = await agent_response_stream
-                        if isinstance(agent_response, StreamData):
-                            yield agent_response
-                            last_yielded_stream_data = agent_response
-                            if agent_response.content:
-                                full_response_content = str(agent_response.content)
-                        else:
-                            response_content = str(agent_response) if agent_response else "No explicit content returned"
-                            stream_data = StreamData(
-                                type="content", 
-                                content=response_content, 
-                                tool_name=agent_name, 
-                                iteration=context.get("delegator_iteration")
-                            )
-                            yield stream_data
-                            last_yielded_stream_data = stream_data
-                            full_response_content = response_content
-                    except Exception as response_error:
-                        error_msg = f"Error processing response from agent {agent_name}: {str(response_error)}"
-                        self.logger.exception(error_msg)
-                        yield StreamData(
-                            type="error",
-                            content=error_msg,
-                            tool_name=agent_name,
-                            error_details=str(response_error),
-                            iteration=context.get("delegator_iteration")
-                        )
-                        return
 
-                # Ensure we have a final response
-                trimmed_response = full_response_content.strip()
-                if not trimmed_response:
-                    trimmed_response = f"Agent {agent_name} completed its task but returned no explicit content."
-                    self.logger.warning(f"Agent {agent_name} returned no explicit content for session '{session_id}' on goal: {goal}")
-                
-                # Make sure we send a tool_response to signal completion if needed
-                if not last_yielded_stream_data or last_yielded_stream_data.type not in ["tool_response", "final_answer", "error"]:
-                    yield StreamData(
-                        type="tool_response", 
-                        content=trimmed_response, 
-                        tool_name=agent_name, 
+                # If agent_response is a StreamData object directly
+                elif isinstance(agent_response, StreamData):
+                    if agent_response.iteration is None:
+                        agent_response.iteration = context.get("delegator_iteration")
+                    yield agent_response
+                    last_yielded_stream_data = agent_response
+                    if agent_response.content:
+                        if isinstance(agent_response.content, str):
+                            full_response_content = agent_response.content
+                        elif isinstance(agent_response.content, dict):
+                            try:
+                                full_response_content = json.dumps(agent_response.content)
+                            except TypeError:
+                                full_response_content = str(agent_response.content)
+
+                # If agent_response is some other value, convert it to StreamData
+                elif agent_response is not None:
+                    response_content_str = str(agent_response)
+                    stream_data = StreamData(
+                        type="content",
+                        content=response_content_str,
+                        tool_name=agent_name,
                         iteration=context.get("delegator_iteration")
                     )
-                
-                self.logger.info(f"Agent '{agent_name}' completed for session '{session_id}'. Response length: {len(trimmed_response)}")
+                    yield stream_data
+                    last_yielded_stream_data = stream_data
+                    full_response_content = response_content_str
+                else:
+                    # Agent returned None
+                    full_response_content = f"Agent {agent_name} completed task but returned no explicit content."
+                    self.logger.info(full_response_content)
 
             except Exception as e:
                 error_msg = f"Error during delegation to agent '{agent_name}' for session '{session_id}': {str(e)}"
                 self.logger.exception(error_msg)
                 yield StreamData(
-                    type="tool_response", 
-                    content=f"Error executing {agent_name}: {str(e)}", 
-                    tool_name=agent_name, 
-                    error_details=str(e), 
+                    type="error",
+                    content=error_msg,
+                    tool_name=agent_name,
+                    error_details=str(e),
                     iteration=context.get("delegator_iteration")
                 )
+                return
+
+            trimmed_response = full_response_content.strip()
+            if not trimmed_response and not (last_yielded_stream_data and last_yielded_stream_data.type == "update_state"):
+                trimmed_response = f"Agent {agent_name} completed its task but returned no explicit textual content."
+                self.logger.warning(f"Agent {agent_name} returned no explicit textual content for session '{session_id}' on goal: {goal}")
+
+            # Ensure a final tool_response is sent if the agent didn't send a terminal signal
+            if not last_yielded_stream_data or last_yielded_stream_data.type not in ["tool_response", "final_answer", "error"]:
+                final_tool_response_content = trimmed_response if trimmed_response else f"Agent {agent_name} completed."
+                yield StreamData(
+                    type="tool_response",
+                    content=final_tool_response_content,
+                    tool_name=agent_name,
+                    iteration=context.get("delegator_iteration")
+                )
+            elif last_yielded_stream_data.type == "update_state" and not trimmed_response:
+                yield StreamData(
+                    type="tool_response",
+                    content=f"Agent {agent_name} completed with state update.",
+                    tool_name=agent_name,
+                    iteration=context.get("delegator_iteration")
+                )
+
+            self.logger.info(f"Agent '{agent_name}' completed for session '{session_id}'. Final response summary length: {len(trimmed_response)}")
+
         else:
             error_msg = f"Attempted to delegate to unknown agent '{agent_name}' for session '{session_id}'."
             self.logger.error(error_msg)
             yield StreamData(
-                type="tool_response", 
-                content=f"Error: Agent {agent_name} not found.", 
-                tool_name=agent_name, 
-                error_details=f"Agent {agent_name} not found.", 
+                type="error",
+                content=error_msg,
+                tool_name=agent_name,
+                error_details=f"Agent {agent_name} not found.",
                 iteration=context.get("delegator_iteration")
             )
-
-    async def _save_current_book_state_to_memory(self):
+    
+    async def _save_current_book_state_to_memory(self): # Ensure this is correctly unindented
         if not self.book_writing_state or not self.current_project_name:
             self.logger.warning("Attempted to save book state, but state or project name is missing.")
+            return
+        
+        if not hasattr(self, 'memory') or self.memory is None:
+            self.logger.warning("Memory manager is not available. Cannot save book writing state.")
             return
 
         book_state_memory_key = f"book_project_{self.current_project_name.replace(' ', '_').lower()}"
@@ -549,6 +587,109 @@ JSON Response:
         except Exception as e:
             self.logger.error(f"Error saving book state for project '{self.current_project_name}': {e}", exc_info=True)
 
+    def _update_book_writing_state_from_slice(self, state_slice: Dict[str, Any], agent_name: str, session_id: str) -> None:
+        """
+        Update the OrchestratorAgent's BookWritingState with data from specialized agents.
+        
+        Args:
+            state_slice: The state slice containing updates from the specialized agent
+            agent_name: The name of the agent that provided the update
+            session_id: The current session ID for logging purposes
+        """
+        if not self.is_book_writing_mode or not self.book_writing_state:
+            self.logger.warning(f"Received book_writing_state_slice update but not in book writing mode or state is None. Agent: {agent_name}")
+            return
+            
+        try:
+            # Handle overall_plot_summary update
+            if "overall_plot_summary" in state_slice:
+                new_plot_summary = state_slice.get("overall_plot_summary")
+                if new_plot_summary and isinstance(new_plot_summary, str):
+                    old_summary = self.book_writing_state.overall_plot_summary or ""
+                    self.book_writing_state.overall_plot_summary = new_plot_summary
+                    self.logger.info(f"Updated overall_plot_summary from {agent_name}. Old length: {len(old_summary)}, New length: {len(new_plot_summary)}")
+            
+            # Handle detailed_chapter_outlines update
+            if "detailed_chapter_outlines" in state_slice:
+                new_outlines_data = state_slice.get("detailed_chapter_outlines", [])
+                if isinstance(new_outlines_data, list) and len(new_outlines_data) > 0:
+                    # Process and validate each chapter outline before adding to the state
+                    validated_outlines = []
+                    for outline_dict in new_outlines_data:
+                        try:
+                            # Validate against ChapterOutlineSchema
+                            validated_outline = ChapterOutlineSchema.model_validate(outline_dict)
+                            validated_outlines.append(validated_outline)
+                        except Exception as e:
+                            self.logger.warning(f"Invalid chapter outline from {agent_name} in session {session_id}: {e}. Outline: {outline_dict}")
+                    
+                    # Update outlines based on agent's updates
+                    if validated_outlines:
+                        # Create a map of existing outlines by chapter number for efficient update
+                        existing_outlines_map = {o.chapter_number: o for o in self.book_writing_state.detailed_chapter_outlines}
+                        
+                        # Update existing or add new chapter outlines
+                        for new_outline in validated_outlines:
+                            existing_outlines_map[new_outline.chapter_number] = new_outline
+                            
+                        # Reconstruct the full outline list in sorted chapter order
+                        self.book_writing_state.detailed_chapter_outlines = [
+                            existing_outlines_map[ch_num] for ch_num in sorted(existing_outlines_map.keys())
+                        ]
+                        
+                        self.logger.info(f"Updated detailed_chapter_outlines from {agent_name}. Now have {len(self.book_writing_state.detailed_chapter_outlines)} chapters.")
+            
+            # Handle character_profiles update
+            if "character_profiles" in state_slice:
+                new_profiles_data = state_slice.get("character_profiles", [])
+                if isinstance(new_profiles_data, list) and len(new_profiles_data) > 0:
+                    # Process and validate each character profile
+                    validated_profiles = []
+                    for profile_dict in new_profiles_data:
+                        try:
+                            # Validate against CharacterProfileSchema
+                            validated_profile = CharacterProfileSchema.model_validate(profile_dict)
+                            validated_profiles.append(validated_profile)
+                        except Exception as e:
+                            self.logger.warning(f"Invalid character profile from {agent_name} in session {session_id}: {e}. Profile: {profile_dict}")
+                    
+                    # Update character profiles
+                    if validated_profiles:
+                        # Create a map of existing profiles by name
+                        existing_profiles_map = {p.name: p for p in self.book_writing_state.character_profiles}
+                        
+                        # Update existing or add new character profiles
+                        for new_profile in validated_profiles:
+                            existing_profiles_map[new_profile.name] = new_profile
+                            
+                        # Reconstruct the profiles list
+                        self.book_writing_state.character_profiles = list(existing_profiles_map.values())
+                        self.logger.info(f"Updated character_profiles from {agent_name}. Now have {len(self.book_writing_state.character_profiles)} character profiles.")
+            
+            # Handle world_building_notes update
+            if "world_building_notes" in state_slice:
+                world_notes_data = state_slice.get("world_building_notes")
+                if isinstance(world_notes_data, dict):
+                    try:
+                        # Validate against WorldAnvilSchema
+                        validated_world_notes = WorldAnvilSchema.model_validate(world_notes_data)
+                        self.book_writing_state.world_building_notes = validated_world_notes
+                        self.logger.info(f"Updated world_building_notes from {agent_name}.")
+                    except Exception as e:
+                        self.logger.warning(f"Invalid world building notes from {agent_name} in session {session_id}: {e}")
+            
+            # Handle other potential updates (revision_notes, writing_style_guide, tone_guide)
+            simple_string_fields = ["revision_notes", "writing_style_guide", "tone_guide"]
+            for field in simple_string_fields:
+                if field in state_slice and isinstance(state_slice[field], str):
+                    setattr(self.book_writing_state, field, state_slice[field])
+                    self.logger.info(f"Updated {field} from {agent_name}.")
+            
+            # After updating, save the state to memory
+            asyncio.create_task(self._save_current_book_state_to_memory())
+            
+        except Exception as e:
+            self.logger.error(f"Error updating BookWritingState from {agent_name} in session {session_id}: {e}", exc_info=True)
 
     @log_async_execution_time(logging.getLogger(f"WITS.OrchestratorAgent.run"))
     async def run(self, user_goal: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
@@ -587,8 +728,8 @@ JSON Response:
                 
                 # Get creative with the temperature! (but not too creative x.x)
                 options = {}
-                if hasattr(self.config_full, 'default_temperature'):
-                    options["temperature"] = self.config_full.default_temperature
+                if self.config and hasattr(self.config, 'temperature') and self.config.temperature is not None:
+                    options["temperature"] = self.config.temperature
 
                 # Ask our LLM friend what to do next =D
                 llm_response = await self.llm.chat_completion_async(

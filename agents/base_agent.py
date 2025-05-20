@@ -8,32 +8,29 @@ from typing import Any, Dict, Optional, List # Added List for get_available_tool
 # from core.memory_manager import MemoryManager
 
 class BaseAgent(ABC):
-    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Any, tool_registry: Optional[Any] = None): # Added tool_registry
+    def __init__(self, agent_name: str, config: Any, llm_interface: Any, memory_manager: Optional[Any] = None, tool_registry: Optional[Any] = None): # Modified memory_manager to be optional
         self.agent_name = agent_name
-        self.config_full = config # Full app config
-        self.agent_config = self._get_agent_specific_config(config) # e.g., config.models.scribe
+        # config is expected to be an AgentProfileConfig instance
+        self.agent_profile = config 
         self.llm = llm_interface
         self.memory = memory_manager
         self.tool_registry = tool_registry # Added tool_registry initialization
         self.logger = logging.getLogger(f"WITS.agents.{self.agent_name}") # Added logger initialization
         self.logger.info(f"[{self.agent_name}] Initialized.") # Changed print to self.logger.info
         
-    def _get_agent_specific_config(self, full_config: Any) -> Dict[str, Any]:
-        # Helper to extract model name or other agent-specific settings
-        
-        # Check if this is an AgentProfileConfig (from app/utils.py)
-        if hasattr(full_config, "llm_model_name"):
-            model_name = full_config.llm_model_name
-            return {"model_name": model_name}
-            
-        # Handle case when it\'s the full AppConfig
-        if hasattr(full_config, "models"):
-            agent_model_key = self.agent_name.lower().replace("_agent", "") # e.g. orchestrator_agent -> orchestrator
-            model_name = getattr(full_config.models, agent_model_key, full_config.models.default)
-            return {"model_name": model_name}
-            
-        # Default case - use a generic empty config with default model
-        return {"model_name": "llama3"}    @abstractmethod
+    def _get_agent_specific_config(self, agent_profile_config: Any) -> Dict[str, Any]:
+        # This method might be redundant if agent_profile is directly used.
+        # Kept for now for compatibility if any subclass was using self.agent_config
+        if hasattr(agent_profile_config, "llm_model_name"):
+            return {"model_name": agent_profile_config.llm_model_name or "unknown"}
+        return {"model_name": "unknown"}
+
+    @property
+    def config(self) -> Any:
+        # Provides access to the agent's specific profile configuration.
+        return self.agent_profile
+
+    @abstractmethod
     async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> Any: # Changed return type to Any for more flexibility with AsyncGenerator
         """Main execution method for the agent."""
         pass

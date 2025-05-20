@@ -1,11 +1,13 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, AsyncGenerator
+import json
 
 from agents.base_agent import BaseAgent
 from agents.book_writing_schemas import WorldAnvilSchema # For typing and validation
+from core.schemas import StreamData
 
 class WorldbuilderAgent(BaseAgent):
-    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> str: # Changed return type
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
         effective_context = context if context is not None else {}
         self.logger.info(f"'{self.agent_name}' received task: {task_description}")
 
@@ -39,6 +41,8 @@ Ensure your entire output is ONLY the JSON object. Do not include any explanator
 New/Updated World Anvil (JSON Object):
 """
         self.logger.debug(f"WorldbuilderAgent LLM Prompt for '{project_name}':\n{prompt}")
+        yield StreamData(type="info", content="Generating world-building content...")
+
         llm_response_str = ""
         try:
             llm_response_str = await self.llm.chat_completion_async(
@@ -53,15 +57,18 @@ New/Updated World Anvil (JSON Object):
 
         except json.JSONDecodeError as e:
             self.logger.error(f"'{self.agent_name}' JSONDecodeError for '{project_name}': {e}. Response: {llm_response_str}")
-            return json.dumps({"error": f"Failed to parse LLM JSON response: {e}", "raw_response": llm_response_str})
+            yield StreamData(type="error", content=f"Failed to parse LLM JSON response: {e}")
+            return
+
         except Exception as e: # Includes Pydantic ValidationError
             self.logger.error(f"'{self.agent_name}' Error processing LLM response for '{project_name}': {e}. Response: {llm_response_str}", exc_info=True)
-            return json.dumps({"error": f"Failed to validate or process LLM response: {e}", "raw_response": llm_response_str})
+            yield StreamData(type="error", content=f"Failed to validate or process LLM response: {e}")
+            return
 
         output_for_orchestrator = {"world_building_notes": generated_world_anvil_dict}
         
         self.logger.info(f"'{self.agent_name}' completed task for '{project_name}'. Outputting updated World Anvil.")
-        return json.dumps(output_for_orchestrator, default=str) # Ensure Pydantic models are converted if any remain
+        yield StreamData(type="tool_response", content=json.dumps(output_for_orchestrator, default=str))
 
     def get_description(self) -> str:
         return "Generates and updates detailed descriptions of fictional worlds, including locations, cultures, history, magic systems, and factions, based on provided tasks and existing world context. Expects to receive and return a complete WorldAnvilSchema object."

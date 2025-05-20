@@ -43,8 +43,19 @@ class MemoryManager:
     
     def __init__(self, config: Any, memory_file_path: Optional[str] = None):
         """Initialize the MemoryManager with configuration."""
-        self.config = config
-        self.memory_file = memory_file_path or config.memory_manager.memory_file_path
+        # If config is AppConfig, access config.memory_manager
+        # If config is MemoryManagerConfig, access config directly
+        if hasattr(config, 'memory_manager') and isinstance(getattr(config, 'memory_manager'), BaseModel):
+            self.resolved_memory_config = config.memory_manager
+            self.debug_config_source = config.debug if hasattr(config, 'debug') else None
+        else:
+            # Assuming config is already MemoryManagerConfig or a compatible structure
+            self.resolved_memory_config = config
+            # Try to get debug config from a potential parent AppConfig if passed differently or not available
+            # This part might need adjustment based on how AppConfig is structured if config is just MemoryManagerConfig
+            self.debug_config_source = getattr(config, '_parent_debug_config', None) # Placeholder for actual debug config access
+
+        self.memory_file = memory_file_path or self.resolved_memory_config.memory_file_path
         self.max_segments = 1000  # Default max segments
         
         # Main storage containers
@@ -58,17 +69,19 @@ class MemoryManager:
         self.logger = logging.getLogger('WITS.MemoryManager')
         
         # Debug configuration
-        self.debug_enabled = config.debug.enabled if hasattr(config, 'debug') else False
-        if self.debug_enabled and hasattr(config.debug, 'components'):
-            self.debug_config = config.debug.components.memory_manager
-        else:
-            self.debug_config = None
+        self.debug_enabled = False
+        self.debug_component_config = None # Renamed from self.debug_config to avoid confusion
+
+        if self.debug_config_source and hasattr(self.debug_config_source, 'enabled'):
+            self.debug_enabled = self.debug_config_source.enabled
+            if self.debug_enabled and hasattr(self.debug_config_source, 'components') and hasattr(self.debug_config_source.components, 'memory_manager'):
+                self.debug_component_config = self.debug_config_source.components.memory_manager
             
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor("MemoryManager")
         
         # FAISS and embedding setup
-        self.vector_model_name = getattr(self.config.memory_manager, 'vector_model', None)
+        self.vector_model_name = getattr(self.resolved_memory_config, 'vector_model', "all-MiniLM-L6-v2") # Use resolved_memory_config
         self.embedding_model = None
         self.index: Optional[faiss.Index] = None # Generic type hint for FAISS index
         self.vector_dim: Optional[int] = 384  # Default fallback dimension
