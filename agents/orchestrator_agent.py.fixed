@@ -44,18 +44,18 @@ class OrchestratorAgent(BaseAgent):
         self.book_writing_mode = False
         self.book_writing_state = BookWritingState(project_name="Uninitialized")
         self.current_project_name = None
-          # Handle delegation targets (can be dict or list)
+        
+        # Handle delegation targets (can be dict or list)
         if isinstance(delegation_targets, dict):
             self.agents_registry = delegation_targets
             self.delegation_targets = list(delegation_targets.keys())
         else:
             self.agents_registry = {}
             self.delegation_targets = list(delegation_targets) if delegation_targets else []
-        
-        # Initialize configuration
-        self.orchestrator_model_name = getattr(config, 'llm_model_name', llm_interface.model_name)
+            
+        self.orchestrator_model_name = config.get('model_name', llm_interface.model_name)
         self.max_iterations = max_iterations
-        self.final_answer_tool = 'FinalAnswerTool'
+        self.final_answer_tool = config.get('final_answer_tool', 'FinalAnswerTool')
 
         self.logger.info(f"OrchestratorAgent initialized. It will use LLM model: {llm_interface.model_name} from its LLMInterface. Max iterations: {self.max_iterations}")
         self.logger.info(f"Delegation targets: {self.delegation_targets}")

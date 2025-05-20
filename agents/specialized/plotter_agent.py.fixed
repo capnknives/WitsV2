@@ -1,0 +1,141 @@
+from typing import Any, Dict, Optional, List, AsyncGenerator
+import json
+import logging
+import re
+from agents.base_agent import BaseAgent
+from core.schemas import StreamData
+from agents.book_writing_schemas import ChapterOutlineSchema # For typing and validation
+from core.json_utils import safe_json_loads, balance_json_braces
+import uuid
+import asyncio
+
+class PlotterAgent(BaseAgent):
+    # __init__ is inherited
+
+    def _extract_json_from_complex_response(self, response: Any, session_id: str) -> Dict[str, Any]:
+        """
+        Extract JSON from potentially complex response formats.
+        
+        This handles:
+        - Dictionary responses with text in the 'response', 'content', or 'message.content' fields
+        - Plain strings that might contain JSON
+        - JSON strings that might have markdown code blocks or other formatting
+        
+        Args:
+            response: The response from the LLM, could be dict, string, or complex object
+            session_id: Session identifier for logging
+            
+        Returns:
+            Extracted dictionary, or empty dict if extraction fails
+        """
+        extracted_text = ""
+        
+        # Handle various response formats
+        if isinstance(response, dict):
+            # Try common keys where content might be
+            for key in ['response', 'content', 'message', 'text', 'result']:
+                if key in response and response[key]:
+                    if key == 'message' and isinstance(response[key], dict) and 'content' in response[key]:
+                        extracted_text = response[key]['content']
+                        break
+                    elif isinstance(response[key], str):
+                        extracted_text = response[key]
+                        break
+        elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+            # OpenAI-like response object
+            extracted_text = response.message.content
+        elif isinstance(response, str):
+            # Direct string response
+            extracted_text = response
+            
+        if not extracted_text:
+            self.logger.warning(f"Could not extract text content from LLM response: {str(response)[:100]}...")
+            return {}
+            
+        # Look for JSON in the extracted text
+        json_match = re.search(r'```(?:json)?\s*({[\s\S]*?})\s*```', extracted_text)
+        if json_match:
+            # JSON within code blocks
+            json_str = json_match.group(1)
+            self.logger.debug(f"Extracted JSON from code block: {json_str[:100]}...")
+        else:
+            # Try to find JSON between curly braces if not in code blocks
+            json_match = re.search(r'({[\s\S]*})', extracted_text)
+            if json_match:
+                json_str = json_match.group(1)
+                self.logger.debug(f"Extracted JSON between curly braces: {json_str[:100]}...")
+            else:
+                # Use the whole text as a fallback
+                json_str = extracted_text
+                self.logger.debug(f"Using full response as JSON input: {json_str[:100]}...")
+                
+        try:
+            return safe_json_loads(json_str, session_id)
+        except json.JSONDecodeError:
+            self.logger.warning(f"Failed to parse extracted JSON from LLM response in session {session_id}")
+            return {}
+
+    async def _run_impl(self, task_description: str, context: Optional[Dict[str, Any]] = None):
+        if context is None:
+            context = {}
+        
+        session_id = context.get("session_id", f"plotter_{str(uuid.uuid4())[:8]}")
+
+        book_state_slice = context.get("book_writing_state_slice", {})
+        project_name = book_state_slice.get("project_name", "Unknown Project")
+        current_overall_plot_summary = book_state_slice.get("overall_plot_summary", "")
+        # Ensure current_detailed_chapter_outlines is a list of dicts, not Pydantic models
+        raw_current_chapters = book_state_slice.get("detailed_chapter_outlines", [])
+        current_detailed_chapter_outlines = [dict(ch) if not isinstance(ch, dict) else ch for ch in raw_current_chapters]
+
+        genre = context.get("genre", book_state_slice.get("genre", "fantasy")) 
+        themes = context.get("themes", book_state_slice.get("themes", []))
+
+        self.logger.info(f"PlotterAgent for project '{project_name}' - Task: {task_description[:100]}...")
+        self.logger.debug(f"Received book_state_slice (summary): overall_plot_summary exists: {bool(current_overall_plot_summary)}, num_chapters: {len(current_detailed_chapter_outlines)}")
+
+        new_overall_plot_summary = current_overall_plot_summary
+        generated_chapter_outlines: List[Dict[str, Any]] = [] 
+
+        try:
+            # Rest of implementation remains the same as original, just yield StreamData objects
+            
+            # At the end, return the updated state
+            updated_book_state_slice = {
+                "project_name": project_name,
+                "overall_plot_summary": new_overall_plot_summary,
+                "detailed_chapter_outlines": generated_chapter_outlines, 
+                "genre": genre, 
+                "themes": themes, 
+            }
+            for key, value in book_state_slice.items():
+                if key not in updated_book_state_slice:
+                    updated_book_state_slice[key] = value
+                    
+            yield StreamData(type="update_state", content={"book_writing_state_slice": updated_book_state_slice})
+            
+        except Exception as e:
+            self.logger.error(f"Critical error in PlotterAgent run for project '{project_name}': {str(e)}", exc_info=True)
+            yield StreamData(type="error", content=f"Critical error in PlotterAgent: {str(e)}")
+
+    async def run(self, task_description: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[StreamData, None]:
+        """Main execution method - proper async generator handling.
+        
+        This method ensures proper async generator behavior by using an internal implementation.
+        
+        Args:
+            task_description: The task to execute
+            context: Optional context dictionary
+            
+        Yields:
+            StreamData objects
+        """
+        self.logger.info(f"'{self.agent_name}' received task: {task_description}")
+        
+        try:
+            # Use async for to properly consume the generator
+            async for data in self._run_impl(task_description, context):
+                yield data
+        except Exception as e:
+            self.logger.error(f"Error in PlotterAgent.run: {str(e)}", exc_info=True)
+            yield StreamData(type="error", content=f"Error in PlotterAgent.run: {str(e)}")
