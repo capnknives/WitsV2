@@ -1,15 +1,23 @@
-﻿import json
+﻿# ====================================================================
+# WITS Control Center Agent - THE CORE BRAIN OF THE ENTIRE SYSTEM
+# DO NOT STUB OR REMOVE THIS FILE UNDER ANY CIRCUMSTANCES!!!
+# This is the central coordinator that handles all user input processing
+# and decides whether to respond directly or delegate to specialized agents
+# ====================================================================
+
+import json
 import logging
 import uuid
-from typing import AsyncGenerator, List, Dict, Optional
+from typing import AsyncGenerator, List, Dict, Optional, Any
 import time
 
 from agents.base_agent import BaseAgent
-from agents.orchestrator_agent import OrchestratorAgent
+from agents.book_orchestrator_agent import BookOrchestratorAgent as OrchestratorAgent
 from core.config import AppConfig
 from core.llm_interface import LLMInterface
 from core.memory_manager import MemoryManager
 from core.schemas import StreamData, MemorySegment, MemorySegmentContent
+from utils.logging_utils import log_async_execution_time
 
 class WitsControlCenterAgent(BaseAgent):
     """WITS Control Center Agent - The top-level coordinator of the WITS system.
@@ -21,6 +29,11 @@ class WitsControlCenterAgent(BaseAgent):
     4. Maintaining conversation context and memory
 
     I'm like the manager trying to make sense of everyone's requests xD
+    
+    !!! CRITICAL COMPONENT !!! 
+    This class is the entry point for all user interactions and MUST NEVER be stubbed or deleted.
+    If you're thinking of removing functionality from this class, DON'T! The whole system relies on
+    this component being fully implemented to properly route and handle user requests.
     """
 
     def __init__(
@@ -29,7 +42,7 @@ class WitsControlCenterAgent(BaseAgent):
         config: AppConfig,
         llm_interface: LLMInterface,
         memory_manager: MemoryManager,
-        orchestrator_delegate: OrchestratorAgent,
+        orchestrator_delegate: OrchestratorAgent,  # REQUIRED! Don't ever make this optional! >.>
         specialized_agents: Optional[Dict[str, BaseAgent]] = None
     ) -> None:
         """Initialize our awesome control center! Let's get this party started =D
@@ -40,7 +53,12 @@ class WitsControlCenterAgent(BaseAgent):
             llm_interface: Our connection to the language model (please work!)
             memory_manager: Gotta remember things or we're toast x.x
             orchestrator_delegate: The ReAct planning mastermind we delegate to
+                                  CRITICAL - This must be properly initialized and passed!
             specialized_agents: The cool specialists we can call on (optional)
+                               
+        NOTE: This initialization MUST remain complete - don't stub/simplify this or the 
+        system will break in mysterious ways! The orchestrator_delegate parameter is 
+        especially critical as it's required for task delegation.
         """
         super().__init__(agent_name, config, llm_interface, memory_manager)
         # Ensure memory is set properly
@@ -67,6 +85,12 @@ class WitsControlCenterAgent(BaseAgent):
         - Needs clarification (confusion intensifies o.O)
         - Has a direct question (I got this! ...maybe)
         
+        !!! CRITICAL PROMPT ENGINEERING - DO NOT SIMPLIFY !!!
+        This prompt template is carefully crafted to enable accurate intent
+        classification. Changes here will directly impact the system's ability
+        to understand what the user wants. If you're thinking of shortening or
+        simplifying this prompt, don't! The entire user experience depends on it.
+        
         Args:
             raw_user_input: What the user just told us
             conversation_history: The saga so far... 
@@ -75,11 +99,10 @@ class WitsControlCenterAgent(BaseAgent):
             str: A carefully crafted prompt to help our LLM friend understand what's up
         """
         # Convert history to a nice readable format =D
-        history_str = "\\n".join([f"{turn['role']}: {turn['content']}" for turn in conversation_history])
+        history_str = "\n".join([f"{turn['role']}: {turn['content']}" for turn in conversation_history])
         
         # Build our super helpful prompt! Don't mess this up brain >.>
-        return f"""
-You are the WITS Control Center, a master AI assistant. Your primary task is to understand 
+        return f"""You are the WITS Control Center, a master AI assistant. Your primary task is to understand 
 the user's input and decide the best course of action.
 
 Conversation History (most recent last):
@@ -98,307 +121,313 @@ Possible types:
 
 2. For clear, actionable tasks:
    {{"type": "goal_defined", "goal_statement": "<A structured goal statement>"}}
-
-3. For unclear/vague requests:
-   {{"type": "clarification_needed", "clarification_question": "<Your question to get more details>"}}
-
-4. For direct, simple questions:
-   {{"type": "direct_answer", "response": "<A clear, concise answer>"}}
-
-Guidelines:
-- Use "chat_response" for casual conversation
-- Format tasks as clear "goal_statement"s
-- Keep chat responses friendly and natural
-- Structure goals for the Orchestrator to understand
-
-Output only the JSON object, nothing else!
 """
 
-    async def handle_llm_response(
-        self, 
-        parsed_response: Dict, 
-        session_id: str
-    ) -> AsyncGenerator[StreamData, None]:
-        """Handle whatever our LLM friend decided to do with the user's input.
+    async def _determine_user_intent(self, raw_user_input: str, conversation_history: List[Dict[str, str]], session_id: str) -> Dict[str, Any]:
+        """Analyze user input to determine whether it's a chat or a task request.
         
-        This is where we figure out if we're:
-        - Just chatting (easy mode activated!)
-        - Doing a complex task (deploy the Orchestrator! \\o/)
-        - Asking for clarification (What do you mean? o.O)
-        - Answering directly (I know this one! ...I think)
+        This method sends the user input to our LLM to get a structured understanding
+        of what the user wants - simple chat or a complex goal to be orchestrated.
+        
+        !!! CRITICAL IMPLEMENTATION - DO NOT STUB OR SIMPLIFY !!!
+        This is a core decision-making method that determines the entire flow of
+        the WITS system. If this method isn't properly implemented, the system 
+        will fail to properly route user requests.
         
         Args:
-            parsed_response: The LLM's decision in JSON form
-            session_id: Which conversation we're in
+            raw_user_input: What the user typed
+            conversation_history: Previous exchanges in this conversation
+            session_id: Current session identifier
+            
+        Returns:
+            Dict containing intent analysis with 'type' and other relevant fields
+        """
+        try:
+            # Build a prompt for the LLM to analyze user intent
+            prompt = self._build_goal_elicitation_prompt(raw_user_input, conversation_history)
+            
+            # Call the LLM to get structured intent analysis
+            llm_response = await self.llm.chat_completion_async(
+                model_name=self.control_center_model_name,
+                messages=[{"role": "system", "content": "You are WITS Control Center, determining user intent."},
+                          {"role": "user", "content": prompt}]
+            )
+            
+            # Extract the response content
+            response_content = llm_response.get('response', '')
+            self.logger.debug(f"Raw LLM intent response: {response_content[:500]}...")
+            
+            # Try to extract JSON from the response
+            try:
+                # First attempt to find JSON in the response
+                json_str = self._extract_json_from_response(response_content)
+                parsed_response = json.loads(json_str)
+                
+                # Validate that we got the expected format
+                if "type" not in parsed_response:
+                    raise ValueError("Response missing required 'type' field")
+                
+                # For chat responses, ensure we have the response text
+                if parsed_response["type"] == "chat_response" and "response" not in parsed_response:
+                    parsed_response["response"] = "I'm sorry, I'm not sure how to respond to that."
+                
+                # For goal requests, ensure we have a structured goal statement
+                elif parsed_response["type"] == "goal_defined" and "goal_statement" not in parsed_response:
+                    parsed_response["goal_statement"] = raw_user_input
+                    
+                return parsed_response
+                
+            except (json.JSONDecodeError, ValueError) as e:
+                # If we can't parse the JSON properly, make a best guess based on the raw input
+                self.logger.warning(f"Failed to parse LLM intent response: {str(e)}. Using fallback.")
+                
+                # Simple heuristic: if it looks like a question or greeting, treat as chat
+                if raw_user_input.lower().startswith(('hi', 'hello', 'hey', 'what', 'who', 'why', 'how', 'can you')):
+                    return {"type": "chat_response", "response": response_content}
+                else:
+                    # Otherwise assume it's a task/goal
+                    return {"type": "goal_defined", "goal_statement": raw_user_input}
+                
+        except Exception as e:
+            # If anything goes wrong, fall back to just treating the input as a goal
+            self.logger.error(f"Error in _determine_user_intent: {str(e)}", exc_info=True)
+            return {"type": "goal_defined", "goal_statement": raw_user_input}
+
+    async def handle_llm_response(self, llm_response_json: Dict[str, Any], session_id: Optional[str] = None) -> AsyncGenerator[StreamData, None]:
+        """Handle the intent determined by the LLM.
+        
+        This method takes the intent classification from _determine_user_intent
+        and either provides a direct chat response or delegates complex tasks to
+        the orchestrator agent.
+        
+        !!! CRITICAL ROUTER - DO NOT STUB OR DELETE !!!
+        This is the crucial routing logic that determines whether the system
+        responds directly or delegates to the orchestrator. Without this
+        properly implemented, the entire system's decision-making fails.
+        If you're thinking of simplifying this logic, DON'T! The branching
+        here is essential for proper WITS functionality.
+        
+        Args:
+            llm_response_json: The parsed response from _determine_user_intent
+            session_id: Current session identifier (optional)
             
         Yields:
-            StreamData: Progress updates and results for the UI
+            StreamData: Data packets for UI updates and responses
         """
-        # What kind of response are we dealing with? Let's find out! =D
-        response_type = parsed_response.get("type")
-        
-        if response_type == "chat_response":
-            # Just a friendly chat! Don't overthink it XD
-            yield StreamData(
-                type="response",
-                content=parsed_response.get("response", "Oops, I lost my train of thought there! x.x")
-            )
-        
-        elif response_type == "goal_defined":
-            # Time for some serious business! Let's get the Orchestrator on this =D
-            goal_statement = parsed_response.get("goal_statement")
-            if not goal_statement or not isinstance(goal_statement, str):
-                self.logger.error(f"Got a goal_defined but no valid goal?! What's happening?! O.o Goal: {goal_statement}")
-                yield StreamData(
-                    type="error",
-                    content="Uh oh, my brain got confused. Can you try rephrasing that?"
-                )
-                return
-                
-            self.logger.debug(f"Passing the torch to Orchestrator for session '{session_id}' \\o/")
+        try:
+            # Ensure we have a valid session ID
+            session_id = session_id or str(uuid.uuid4())
             
-            # HERE WE GO! Time to delegate like a boss ^_^
-            async for stream_data in self.orchestrator_delegate.run(
-                goal_statement,
-                {"session_id": session_id}
-            ):
-                yield stream_data
-        
-        elif response_type == "clarification_needed":
-            # I am confusion! America explain! XD
-            yield StreamData(
-                type="clarification_request",
-                content=parsed_response.get(
-                    "clarification_question", 
-                    "I'm a bit lost here... Could you explain that differently? >.>"
+            # Handle based on the detected intent type
+            if llm_response_json.get("type") == "goal_defined":
+                goal_statement = llm_response_json.get("goal_statement", "")
+                
+                if not goal_statement.strip():
+                    yield StreamData(
+                        type="error", 
+                        content="I couldn't understand your request clearly. Could you please rephrase it?"
+                    )
+                    return
+                
+                # First, let the user know we're working on their task
+                yield StreamData(
+                    type="info",
+                    content=f"I understand! Working on: {goal_statement}"
                 )
-            )
-        
-        elif response_type == "direct_answer":
-            # I know this one! ...probably
-            yield StreamData(
-                type="response",
-                content=parsed_response.get(
-                    "response", 
-                    "I thought I knew the answer but now I'm not so sure x.x"
+                
+                # Now delegate to the orchestrator agent with the structured goal
+                context = {"session_id": session_id}
+                async for data in self.orchestrator_delegate.run(goal_statement, context):
+                    # Pass through all orchestrator responses
+                    yield data
+                
+            elif llm_response_json.get("type") == "chat_response":
+                # Direct chat response, no need for delegation
+                response = llm_response_json.get("response", "I'm not sure how to respond to that.")
+                yield StreamData(type="chat", content=response)
+                
+            else:
+                # Unknown intent type - this shouldn't happen with proper LLM responses
+                yield StreamData(
+                    type="error", 
+                    content="I couldn't determine how to handle your request. Could you try again?"
                 )
-            )
-        
-        else:
-            # What is this response type?! I've never seen this before! o.O
+                
+        except Exception as e:
+            # Catch any errors during processing
+            self.logger.error(f"Error in handle_llm_response: {str(e)}", exc_info=True)
             yield StreamData(
                 type="error",
-                content=f"My brain encountered an unexpected response type: '{response_type}'. "
-                        "Could you try asking in a different way?"
+                content=f"I encountered an issue while processing your request. Please try again.",
+                error_details=str(e)
             )
 
+    def _extract_json_from_response(self, response_text: str) -> str:
+        """Extract JSON from LLM response text.
+        
+        LLMs sometimes wrap JSON in markdown code blocks or add extra text.
+        This method tries to extract just the JSON part.
+        
+        !!! CRITICAL UTILITY - DO NOT DELETE OR SIMPLIFY !!!
+        This method enables proper parsing of LLM responses which is essential
+        for the WCCA to correctly interpret intent classification results.
+        Without this, many LLM responses would fail to parse correctly.
+        
+        Args:
+            response_text: The raw LLM response text
+            
+        Returns:
+            str: The extracted JSON string
+        """
+        if "```json" in response_text:
+            # Extract from JSON code block with explicit labeling
+            json_block_start = response_text.find("```json") + len("```json")
+            json_block_end = response_text.rfind("```")
+            return response_text[json_block_start:json_block_end].strip()
+        
+        elif "```" in response_text:
+            # Extract from generic code block
+            json_block_start = response_text.find("```") + len("```")
+            json_block_end = response_text.rfind("```")
+            return response_text[json_block_start:json_block_end].strip()
+        
+        else:
+            # Try to find bare JSON by looking for outermost braces
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1  # Include the closing brace
+            
+            if json_start != -1 and json_end > json_start:
+                return response_text[json_start:json_end].strip()
+            
+            # If all else fails, just return the original text
+            return response_text
+
+    async def _log_decision_to_memory(self, session_id: Optional[str], raw_user_input: str, 
+                                    response_text: str, parsed_response: Dict[str, Any],
+                                    conversation_history_length: int) -> None:
+        """Log decision process to memory for future reference.
+        
+        !!! CRITICAL FOR SYSTEM MEMORY - DO NOT DELETE !!!
+        This method saves information about the decisions made by the WCCA,
+        which is essential for maintaining context across conversations and 
+        enabling users to review past interactions. Removing this would
+        damage the system's ability to learn from past interactions.
+        
+        Args:
+            session_id: Current session identifier
+            raw_user_input: Original user input
+            response_text: Raw LLM response
+            parsed_response: Parsed response as a dictionary
+            conversation_history_length: Length of the conversation history
+        """
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            
+        try:
+            decision_details = {
+                "raw_user_input": raw_user_input,
+                "llm_response_snippet": response_text[:500] if len(response_text) > 500 else response_text,
+                "intent_type": parsed_response.get("type", "unknown"),
+                "conversation_history_length": conversation_history_length
+            }
+            
+            # Add goal statement if this was a task request
+            if parsed_response.get("type") == "goal_defined":
+                decision_details["goal_statement"] = parsed_response.get("goal_statement", "")
+                
+            # Add memory segment using the correct method signature
+            segment_id = await self.memory.add_segment(
+                segment_type="AGENT_DECISION",
+                content_text=json.dumps(decision_details),
+                source=self.agent_name,
+                tool_name="intent_classifier",
+                importance=0.7,  # Decisions are pretty important!
+                meta={
+                    "session_id": session_id,
+                    "timestamp": time.time(),
+                    "decision_type": parsed_response.get("type", "unknown")
+                }
+            )
+            
+            self.logger.debug(f"Logged decision process (ID: {segment_id})")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to log decision to memory: {str(e)}", exc_info=True)
+
+    @log_async_execution_time(logging.getLogger("WITS.WitsControlCenterAgent"))
     async def run(
         self,
         raw_user_input: str,
         conversation_history: List[Dict[str, str]],
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
     ) -> AsyncGenerator[StreamData, None]:
-        """Time to process a user request! Let's do this! \\o/
+        """Process user requests and coordinate responses.
         
-        This is our main entry point where we:
-        1. Log what the user said (don't forget or it's gone forever! x.x)
-        2. Ask our LLM friend what to do (please be smart today)
-        3. Handle the response (what could go wrong? ...everything)
-        4. Remember what happened (future us will thank us... maybe)
+        This is the main entry point for the WCCA. It:
+        1. Analyzes user input
+        2. Determines if it's a simple chat or complex task
+        3. Either responds directly or delegates to the orchestrator
+        4. Logs the decision process to memory
+        
+        !!! ABSOLUTELY CRITICAL COMPONENT - DO NOT MODIFY WITHOUT EXTREME CAUTION !!!
+        This method is the primary entry point for ALL user interactions in the system.
+        Modifying this incorrectly will break the entire application flow.
+        If you're thinking about stubbing this out - STOP! The system will completely
+        fail to function properly. This is not exaggeration - it's the truth x.x
         
         Args:
-            raw_user_input: The user's message in its pure, unfiltered glory
-            conversation_history: The epic tale so far
-            session_id: Which conversation we're in (we'll make one if needed!)
+            raw_user_input: The user's input text
+            conversation_history: Previous conversation turns
+            session_id: Optional session identifier
+        
+        Yields:
+            StreamData: Response streams for the user interface
         """
-        # Make a session ID if we don't have one (we're so responsible! ^_^)
-        if session_id is None:
-            session_id = str(uuid.uuid4())
-            self.logger.info(f"Created new session ID: {session_id} (I'm helping! =D)")
-
-        self.logger.info(
-            f"WCCA received message in session '{session_id}': '{raw_user_input}' "
-            f"(history length: {len(conversation_history)})"
-        )
-
+        # Ensure we have a valid session ID
+        session_id = session_id or str(uuid.uuid4())
+        
+        self.logger.info(f"WCCA processing request in session '{session_id}': {raw_user_input}")
+        
         try:
-            # First things first - save what the user said! Don't be lazy >.>
-            initial_user_input_content = MemorySegmentContent(text=raw_user_input)
-            initial_user_input_segment = MemorySegment(
-                type="user_input_to_wcca",
-                source="USER",
-                content=initial_user_input_content,
-                metadata={
-                    "session_id": session_id,
-                    "timestamp": time.time(),
-                    "processed_by_agent": self.agent_name,
-                    "role": "user"  # For history reconstruction later! We're so smart ^_^
-                }
-            )
-            await self.memory.add_memory_segment(initial_user_input_segment)
-            self.logger.debug(f"Saved user input to memory like a good agent =D (ID: {initial_user_input_segment.id})")
-
-            # Build our super smart prompt to figure out what to do
-            prompt = self._build_goal_elicitation_prompt(raw_user_input, conversation_history)
-            self.logger.debug(f"Built a beautiful prompt for session '{session_id}':\\n{prompt}")
-
-            # Set up options for our LLM friend
-            options = {}
-            # Access temperature from the agent's own profile (self.config which is self.agent_profile)
-            if self.config and hasattr(self.config, 'temperature') and self.config.temperature is not None:
-                options["temperature"] = self.config.temperature
-                self.logger.debug(f"Using temperature {options['temperature']} from WCCA profile (feeling creative today! ^_^)")
-            # Fallback to a default if not in profile (though it should be)
-            elif "temperature" not in options:
-                options["temperature"] = 0.5 # A sensible default for WCCA
-                self.logger.debug(f"WCCA profile temperature not found, using default {options['temperature']}")
-
-            # Ask the LLM what we should do (fingers crossed! x.x)
-            llm_response = await self.llm.chat_completion_async(
-                model_name=self.control_center_model_name,
-                messages=[{"role": "user", "content": prompt}],
-                options=options
+            # Add user input to memory - using correct parameter names for add_segment
+            await self.memory.add_segment(
+                segment_type="USER_INPUT",
+                content_text=raw_user_input,
+                source="user",
+                meta={"session_id": session_id, "timestamp": time.time()}
             )
             
-            # Get the actual response text and clean it up
-            response_text = llm_response.get('response', '').strip()
-            self.logger.debug(f"LLM responded! Let's see what we got... O.o\\n{response_text}")
-
-            # Try to parse that JSON (this is where things usually explode XD)
-            try:
-                json_str_cleaned = self._extract_json_from_response(response_text)
-                parsed_response_json = json.loads(json_str_cleaned)
-                self.logger.info(f"Successfully parsed LLM response! We're on fire! \\o/")
-
-                # Process what we got through our handler
-                async for result in self.handle_llm_response(parsed_response_json, session_id):
-                    yield result
-
-                # Log what we decided (for science! And debugging... mostly debugging)
-                await self._log_decision_to_memory(
-                    session_id=session_id,
-                    raw_user_input=raw_user_input,
-                    response_text=response_text,
-                    parsed_response=parsed_response_json,
-                    conversation_history_length=len(conversation_history)
-                )
-
-            except json.JSONDecodeError as e:
-                # JSON parsing failed... time to panic! x.x
-                self.logger.error(
-                    f"Failed to parse LLM response! What even is this?! >.>\\n"
-                    f"Error: {e}\\nResponse: {response_text}"
-                )
-                yield StreamData(
-                    type="error",
-                    content=(
-                        "I got a bit confused trying to process that... "
-                        "Could you try asking in a different way?"
-                    ),
-                    error_details=f"JSON parse error: {str(e)}"
-                )
-                
-                # Log our failure (it's important to remember our mistakes... I guess >.>)
-                await self._log_error_to_memory(
-                    session_id=session_id,
-                    error_type="json_parse_error",
-                    error=e,
-                    raw_user_input=raw_user_input,
-                    response_text=response_text
-                )
-
+            # Determine user intent - chat or task?
+            llm_response = await self._determine_user_intent(
+                raw_user_input, 
+                conversation_history, 
+                session_id
+            )
+            
+            # Log the intent classification response
+            self.logger.info(f"Intent classification response: {llm_response}")
+            
+            # Log the decision process to memory
+            await self._log_decision_to_memory(
+                session_id, 
+                raw_user_input,
+                str(llm_response), 
+                llm_response, 
+                len(conversation_history)
+            )
+            
+            # Handle the response - either chat directly or delegate to orchestrator
+            async for data in self.handle_llm_response(llm_response, session_id):
+                yield data
+            
         except Exception as e:
-            # Something went really wrong... time to gracefully panic! O.o
-            self.logger.exception(f"Something exploded in the WCCA! HELP! x.x\\nError: {e}")
+            # Something went wrong
+            self.logger.exception(f"Error in WCCA run method: {str(e)}")
             yield StreamData(
                 type="error",
-                content="Oops! Something went wrong in my brain... Could you try that again?",
+                content="I encountered an issue processing your request. Please try again.",
                 error_details=str(e)
             )
             
-            # Log the catastrophe (for future archaeologists to study XD)
-            await self._log_error_to_memory(
-                session_id=session_id,
-                error_type="unexpected_error",
-                error=e,
-                raw_user_input=raw_user_input
-            )
-
-    def _extract_json_from_response(self, response_text: str) -> str:
-        """Try to find the JSON in an LLM response (it's like Where's Waldo! ^_^)"""
-        if "```json" in response_text:
-            # Fancy markdown format detected! =D
-            json_block_start = response_text.find("```json") + len("```json")
-            json_block_end = response_text.rfind("```")
-            return response_text[json_block_start:json_block_end].strip()
-        elif "```" in response_text:
-            # Regular code block (you tried! ^_^)
-            json_block_start = response_text.find("```") + len("```")
-            json_block_end = response_text.rfind("```")
-            return response_text[json_block_start:json_block_end].strip()
-        else:
-            # Look for bare JSON (living dangerously! o.O)
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}')
-            if json_start != -1 and json_end != -1 and json_end > json_start:
-                return response_text[json_start:json_end + 1]
-            return response_text  # YOLO! Maybe it's already clean JSON? >.>
-
-    async def _log_decision_to_memory(
-        self,
-        session_id: str,
-        raw_user_input: str,
-        response_text: str,
-        parsed_response: Dict,
-        conversation_history_length: int
-    ) -> None:
-        """Log our decision process (because documentation is important... I guess x.x)"""
-        decision_details = {
-            "raw_user_input": raw_user_input,
-            "llm_response_snippet": response_text[:500],  # Keep it reasonable XD
-            "llm_parsed_response": parsed_response,
-            "conversation_history_length": conversation_history_length
-        }
-        
-        memory_segment = MemorySegment(
-            type="agent_decision_process",
-            source=self.agent_name,
-            content=MemorySegmentContent(text=json.dumps(decision_details)),
-            metadata={
-                "session_id": session_id,
-                "timestamp": time.time(),
-                "decision_type": parsed_response.get("type", "unknown")
-            }
-        )
-        await self.memory.add_memory_segment(memory_segment)
-        self.logger.info(f"Logged decision process! (ID: {memory_segment.id}) We're so organized! =D")
-
-    async def _log_error_to_memory(
-        self,
-        session_id: str,
-        error_type: str,
-        error: Exception,
-        raw_user_input: str,
-        response_text: Optional[str] = None
-    ) -> None:
-        """Log our failures (everyone messes up sometimes... right? >.>)"""
-        error_details = {
-            "raw_user_input": raw_user_input,
-            "error_type": error_type,
-            "error_message": str(error)
-        }
-        if response_text:
-            error_details["llm_response"] = response_text[:500]  # Truncate the evidence XD
-            
-        error_segment = MemorySegment(
-            type="agent_error",
-            source=self.agent_name,
-            content=MemorySegmentContent(text=json.dumps(error_details)),
-            metadata={
-                "session_id": session_id,
-                "timestamp": time.time(),
-                "error_type": error_type
-            }
-        )
-        await self.memory.add_memory_segment(error_segment)
-        self.logger.info(f"Logged our oopsie for posterity x.x (ID: {error_segment.id})")
+        # Log completion
+        self.logger.info(f"Request processing complete for session '{session_id}'")
