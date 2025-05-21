@@ -102,6 +102,48 @@ class ToolRegistry:
         """Get all registered tools."""
         return list(self.tools.values())
     
+    def deregister_tool(self, tool_name: str) -> bool:
+        """
+        Say goodbye to a tool! Sometimes tools need to retire too! \\o/
+        
+        Args:
+            tool_name: The name of the tool to deregister
+            
+        Returns:
+            bool: True if the tool was deregistered, False if not found
+            
+        Raises:
+            ValueError: When someone tries to deregister a tool that doesn't exist
+        """
+        try:
+            if tool_name not in self.tools:
+                self.logger.warning(f"Tool '{tool_name}' not found for deregistration.")
+                return False
+            
+            # Time to say farewell! It's not goodbye, it's see you later! ^_^
+            del self.tools[tool_name]
+            
+            # Document this bittersweet moment! O.o
+            debug_info = DebugInfo(
+                timestamp=datetime.now().isoformat(),
+                component="ToolRegistry",
+                action="deregister_tool",
+                details={
+                    "tool_name": tool_name,
+                    "total_tools": len(self.tools)  # Our collection shrinks a bit >.>
+                },
+                duration_ms=0,
+                success=True
+            )
+            log_debug_info(self.logger, debug_info)
+            
+            self.logger.info(f"Tool '{tool_name}' deregistered successfully.")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error deregistering tool '{tool_name}': {e}")
+            raise
+    
     def get_tools_for_llm(self) -> List[Dict[str, Any]]:
         """Get tool schemas formatted for LLM consumption."""
         return [tool.get_llm_schema() for tool in self.tools.values()]

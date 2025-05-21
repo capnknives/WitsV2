@@ -12,8 +12,12 @@ from .enhanced_json_handler import EnhancedJSONHandler
 from .example_prompt_templates import EnhancedPromptTemplate
 from .autonomy_enhancer import AutonomyEnhancer, ToolUsageStats
 from .enhanced_tool_base import EnhancedTool
+from .mcp_tool_adapter import MCPToolAdapter, MCPToolDefinition, MCPToolManager
+from .code_modifier import CodeModifier, CodeModificationResult, PythonCodeAnalyzer
+from .agent_factory import AgentFactory, AgentManager, AgentConfig, AgentStatus
 
 __all__ = [
+    # Base enhanced autonomy
     'ToolExampleRepository',
     'ToolExampleUsage',
     'ToolSimulator',
@@ -23,4 +27,20 @@ __all__ = [
     'AutonomyEnhancer',
     'ToolUsageStats',
     'EnhancedTool',
+    
+    # MCP Tool adapter
+    'MCPToolAdapter',
+    'MCPToolDefinition',
+    'MCPToolManager',
+    
+    # Code modification
+    'CodeModifier',
+    'CodeModificationResult',
+    'PythonCodeAnalyzer',
+    
+    # Agent management
+    'AgentFactory',
+    'AgentManager',
+    'AgentConfig',
+    'AgentStatus',
 ]

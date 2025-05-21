@@ -5,10 +5,11 @@ import logging
 import asyncio
 import re
 from datetime import datetime
+from pydantic import ValidationError # Ensure ValidationError is imported
 
 from core.llm_interface import LLMInterface
-from core.memory_manager import MemoryManager
-from core.schemas import StreamData, MemorySegment, MemorySegmentContent
+from core.memory_manager import MemoryManager 
+from core.schemas import StreamData, MemorySegment, MemorySegmentContent # Added StreamData here
 from agents.base_agent import BaseAgent
 from agents.base_orchestrator_agent import BaseOrchestratorAgent
 from agents.book_writing_schemas import (
@@ -23,16 +24,15 @@ class BookOrchestratorAgent(BaseOrchestratorAgent):
                  agent_name: str, 
                  config: Dict[str, Any], 
                  llm_interface: LLMInterface, 
-                 memory_manager: MemoryManager, 
+                 memory_manager: MemoryManager, # Type hint with base MemoryManager or EnhancedMemoryManager
                  tool_registry: Optional[Any] = None, 
                  delegation_targets: Optional[Union[Dict[str, BaseAgent], List[str]]] = None, 
                  max_iterations: int = 5):
         super().__init__(agent_name, config, llm_interface, memory_manager, tool_registry, delegation_targets, max_iterations)
         
-        # Initialize book writing specific state
         self.book_writing_mode = False
         self.book_writing_state = BookWritingState(project_name="Uninitialized")
-        self.current_project_name = None
+        self.current_project_name: Optional[str] = None # Ensure type hint for current_project_name
 
     def _extract_project_name(self, user_goal: str, context: Dict[str, Any]) -> Optional[str]:
         """Extract project name from user goal or context."""
@@ -75,30 +75,48 @@ class BookOrchestratorAgent(BaseOrchestratorAgent):
 
     async def _save_current_book_state_to_memory(self) -> None:
         """Save the current book writing state to memory."""
-        try:            # Serialize state to dictionary, excluding None values
+        if not self.memory:
+            self.logger.error(f"Memory manager (self.memory) not available in BookOrchestratorAgent for project '{self.current_project_name}'. Cannot save book state.")
+            return
+        if not self.current_project_name:
+            self.logger.error(f"current_project_name is not set in BookOrchestratorAgent. Cannot save book state.")
+            return
+
+        try:
             state_dict = self.book_writing_state.model_dump(exclude_none=True)
             
-            # Create memory segment
-            memory_segment = MemorySegment(
-                id=f"book_state_{self.current_project_name}",
-                type="book_writing_state",
-                source="BookOrchestratorAgent",
-                content=MemorySegmentContent(
-                    text=f"Book writing state for project '{self.current_project_name}'",
-                    tool_output=json.dumps(state_dict)
-                ),
-                metadata={
+            segment_content_data = MemorySegmentContent(
+                text=f"Book writing state for project '{self.current_project_name}'",
+                tool_output=json.dumps(state_dict)
+            )
+            
+            memory_segment_data = {
+                "id": f"book_state_{self.current_project_name}",
+                "timestamp": datetime.now(), 
+                "type": "book_writing_state",
+                "source": "BookOrchestratorAgent",
+                "content": segment_content_data.model_dump(), 
+                "importance": 0.8,
+                "metadata": {
                     "project_name": self.current_project_name,
                     "timestamp": datetime.now().isoformat()
-                },
-                importance=0.8
-            )
+                }
+            }
+            
+            self.logger.info(f"Data for MemorySegment creation for project '{self.current_project_name}': {json.dumps(memory_segment_data, default=str, indent=2)}")
 
-            # Store in memory
+            try:
+                memory_segment = MemorySegment.model_validate(memory_segment_data)
+            except ValidationError as val_err:
+                self.logger.error(f"Pydantic validation error creating MemorySegment for project '{self.current_project_name}': {val_err}. Data: {json.dumps(memory_segment_data, default=str, indent=2)}", exc_info=True)
+                return
+
+            self.logger.info(f"Attempting to save MemorySegment to memory for project '{self.current_project_name}'. Segment details: {memory_segment.model_dump_json(indent=2)}")
+
             await self.memory.add_memory_segment(memory_segment)
             self.logger.info(f"Successfully saved book writing state for project '{self.current_project_name}'")
         except Exception as e:
-            self.logger.error(f"Failed to save book writing state: {e}")
+            self.logger.error(f"Failed to save book writing state for project '{self.current_project_name}': {e}", exc_info=True)
 
     async def _handle_agent_delegation(self, agent_name: str, goal: str, context: Dict[str, Any]) -> AsyncGenerator[StreamData, None]:
         """Override to add book-specific state to delegation context."""

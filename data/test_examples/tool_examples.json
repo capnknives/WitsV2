@@ -1,0 +1,65 @@
+{
+  "calculator": [
+    {
+      "tool_name": "calculator",
+      "args": {
+        "expression": "2 + 2"
+      },
+      "result": {
+        "expression": "2 + 2",
+        "result": 4,
+        "error": null
+      },
+      "context": "Simple addition calculation",
+      "explanation": "This is a basic addition operation that works as expected.",
+      "success": true,
+      "timestamp": 1747845382.1848261
+    },
+    {
+      "tool_name": "calculator",
+      "args": {
+        "expression": "10 / 0"
+      },
+      "result": {
+        "expression": "10 / 0",
+        "result": null,
+        "error": "Division by zero"
+      },
+      "context": "Division by zero example",
+      "explanation": "This example shows what happens when you try to divide by zero.",
+      "success": false,
+      "timestamp": 1747845382.1848261
+    },
+    {
+      "tool_name": "calculator",
+      "args": {
+        "expression": "3 * (4 + 2)"
+      },
+      "result": {
+        "result": 18,
+        "expression": "3 * (4 + 2)",
+        "error": null
+      },
+      "context": "",
+      "explanation": "Successfully executed calculator with the provided arguments.",
+      "success": true,
+      "timestamp": 1747845382.1888287
+    }
+  ],
+  "datetime": [
+    {
+      "tool_name": "datetime",
+      "args": {
+        "format": "%Y-%m-%d"
+      },
+      "result": {
+        "current_date": "2023-05-21",
+        "current_time": "14:30:00"
+      },
+      "context": "Getting the current date",
+      "explanation": "This shows how to get the current date in YYYY-MM-DD format.",
+      "success": true,
+      "timestamp": 1747845382.1858256
+    }
+  ]
+}

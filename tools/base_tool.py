@@ -4,10 +4,19 @@ import logging
 import time  # Time tracking (because we care about performance... sometimes x.x)
 import traceback  # For when things go boom! >.>
 from datetime import datetime
-from typing import Any, ClassVar, Dict, Type, Optional  # Our type-safety friends! =D
-from pydantic import BaseModel, create_model  # Pydantic, our data validation bestie! \\o/
+from typing import Any, ClassVar, Dict, Type, Optional, Generic, TypeVar # Our type-safety friends! =D
+from pydantic import BaseModel, create_model, Field # Pydantic, our data validation bestie! \\o/
 
 from core.debug_utils import DebugInfo, log_debug_info  # Debug powers, activate! O.o
+
+# Define a TypeVar for the output of a tool
+OutputType = TypeVar('OutputType', bound=BaseModel)
+
+class ToolResponse(BaseModel, Generic[OutputType]):
+    """Standardized response structure for tools."""
+    status_code: int = Field(200, description="HTTP-like status code for the operation.")
+    output: Optional[OutputType] = Field(None, description="The actual output data from the tool, conforming to a Pydantic model.")
+    error_message: Optional[str] = Field(None, description="Error message if the operation failed.")
 
 class BaseTool(ABC):
     """
@@ -36,7 +45,7 @@ class BaseTool(ABC):
     args_schema: ClassVar[Type[BaseModel]]  # The recipe for success! \\o/
     
     @abstractmethod
-    async def execute(self, args: BaseModel) -> Any:
+    async def execute(self, args: BaseModel) -> ToolResponse[BaseModel]: # Ensure this uses the new ToolResponse
         """
         Time to make the magic happen! This is where tools do their thing! \\o/
         

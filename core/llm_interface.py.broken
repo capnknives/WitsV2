@@ -18,7 +18,7 @@ class LLMInterface:
     
     I help you chat with those fancy Ollama LLMs:
     1. Basic chitchat (the simple stuff ^_^)
-    2. Fancy JSON outputs (gotta keep it structured \o/)
+    2. Fancy JSON outputs (gotta keep it structured \\o/)
     3. Fixing oopsies (retry all the things! >.>)
     4. Watching everything like a hawk (debug mode activated! x.x)
     """
@@ -31,7 +31,7 @@ class LLMInterface:
         request_timeout: Optional[int] = None  # How long before we give up? >.>
     ): 
         """
-        Time to make friends with an LLM! Let's get this party started \o/
+        Time to make friends with an LLM! Let's get this party started \\o/
         
         Args:
             model_name: Pick your AI companion! (or let it pick itself =P)
@@ -51,7 +51,7 @@ class LLMInterface:
         self.debug_enabled = False
         self.debug_config = {"log_prompts": False, "log_responses": False, "log_tokens": False}
         
-        self.logger.info(f"Ready to rock with model: {self._model_name or 'default'}, temp: {self._temperature} \o/")
+        self.logger.info(f"Ready to rock with model: {self._model_name or 'default'}, temp: {self._temperature} \\o/")
         if self._ollama_url:
             self.logger.info(f"Using Ollama server at {self._ollama_url}")
 
@@ -75,7 +75,7 @@ class LLMInterface:
         """
         Adjust the AI's creativity thermostat! 
         0.0 = Serious business mode
-        1.0 = Party mode! \o/
+        1.0 = Party mode! \\o/
         """
         if not 0.0 <= value <= 1.0:
             raise ValueError("Whoa there! Temperature must be between 0.0 and 1.0 x.x")
@@ -93,7 +93,7 @@ class LLMInterface:
         Args:
             prompt: The question we're asking our AI friend
             model_name: Which AI to chat with (optional party guest =P)
-            options: Extra settings for maximum fun! \o/
+            options: Extra settings for maximum fun! \\o/
             
         Returns:
             str: What our AI friend had to say! 
@@ -159,8 +159,7 @@ class LLMInterface:
                 
                 # Number crunching time! x.x
                 if self.debug_config.get('log_tokens', False) and 'eval_count' in response:
-                    self.logger.debug(
-                        f"Fun stats from {model_to_use}! \o/\n"
+                    self.logger.debug(                        f"Fun stats from {model_to_use}! \\o/\n"
                         f"Brain cells used: {response['eval_count']}\n"
                         f"Think time: {response.get('eval_duration', 'Too fast to measure! =P')}"
                     )
@@ -202,7 +201,7 @@ class LLMInterface:
         We'll help our AI friend:
         1. Parse their thoughts into pretty JSON =D
         2. Give them a few retries if they mess up >.>
-        3. Package everything in a nice Pydantic bow! \o/
+        3. Package everything in a nice Pydantic bow! \\o/
         
         Args:
             prompt: The big question for our AI buddy
@@ -239,7 +238,7 @@ class LLMInterface:
         if options:
             effective_options.update(options)
 
-        self.logger.info(f"Time to chat with {model_to_use}! (JSON mode via chat endpoint! \\o/)")
+        self.logger.info(f"Time to chat with {model_to_use}! (JSON mode via chat endpoint! \\\\o/)")
         # Reduced logging verbosity for prompt
         # self.logger.debug(f"Here\'s a peek at what we\'re asking:\\n{prompt[:300]}...\\n...\\n{prompt[-300:]}")
 
@@ -286,14 +285,12 @@ class LLMInterface:
                 
                 if attempt == max_retries - 1:
                     return f"Error: {model_to_use} ran into a wall after {max_retries} attempts! Details: {str(e)}"
-            
-            # Quick breather before trying again! =P
+              # Quick breather before trying again! =P
             # await asyncio.sleep(1) # Consider if async sleep is needed; ollama.chat is synchronous
-        
-        # Fallback return if we somehow got here after all retries
+          # Fallback return if we somehow got here after all retries
         return "Error: Something went wrong in our AI adventure x.x"
-    
-    async def generate_structured_orchestrator_response(
+        
+async def generate_structured_orchestrator_response(
         self,
         prompt_parts: List[Union[str, Dict[str, Any]]],
         session_id: str,
@@ -304,7 +301,7 @@ class LLMInterface:
         We'll help our AI friend:
         1. Parse their thoughts into pretty JSON =D
         2. Give them a few retries if they mess up >.>
-        3. Package everything in a nice Pydantic bow! \o/
+        3. Package everything in a nice Pydantic bow! \\o/
         
         Args:
             prompt_parts: The big question for our AI buddy, in parts
@@ -445,7 +442,7 @@ class LLMInterface:
                 # Ensure we are modifying a copy or reconstructing messages to avoid issues with mutable list
                 current_user_messages = [msg for msg in messages if msg["role"] == "user"]
                 messages = [
-                    {"role": "system", "content": system_prompt_content + "\n\nYOUR PREVIOUS RESPONSE WAS NOT VALID JSON. DO NOT INCLUDE ANY TEXT OUTSIDE THE JSON STRUCTURE. START WITH { AND END WITH }."},
+                    {"role": "system", "content": system_prompt_content + "\\n\\nYOUR PREVIOUS RESPONSE WAS NOT VALID JSON. DO NOT INCLUDE ANY TEXT OUTSIDE THE JSON STRUCTURE. START WITH { AND END WITH }."},
                 ] + current_user_messages
             else:
                 self.logger.error(f"Failed to get valid structured response for session '{session_id}' after {max_retries} attempts. Creating fallback response.")
@@ -517,7 +514,7 @@ class LLMInterface:
             ] + processed_messages
             
         try:
-            # Time to have a nice chat! \o/
+            # Time to have a nice chat! \\o/
             response = ollama.chat(
                 model=model_to_use,
                 messages=processed_messages, # Use the potentially modified list

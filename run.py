@@ -19,11 +19,12 @@ from pathlib import Path
 
 from core.config import AppConfig, MemoryManagerConfig # Added MemoryManagerConfig
 from core.llm_interface import LLMInterface
-from core.memory_manager import MemoryManager
+from core.memory_manager import EnhancedMemoryManager # Changed from MemoryManager
 from core.schemas import MemoryConfig # Added MemoryConfig
 from agents.book_orchestrator_agent import BookOrchestratorAgent as OrchestratorAgent
 from agents.base_orchestrator_agent import BaseOrchestratorAgent
 from agents.wits_control_center_agent import WitsControlCenterAgent
+from core.debug_utils import setup_logging # ADDED: Import setup_logging
 
 # Global logger
 logger = logging.getLogger('WITS')
@@ -68,14 +69,14 @@ async def start_wits_cli(config: AppConfig):
         memory_manager_config_data = config.memory_manager
         core_memory_config = MemoryConfig(
             vector_model=memory_manager_config_data.vector_model,
-            memory_file_path=memory_manager_config_data.memory_file_path, 
+            memory_file=memory_manager_config_data.memory_file_path, # MODIFIED: Changed memory_file_path to memory_file
             debug_enabled=memory_manager_config_data.debug_enabled,
             # Ensure all fields from MemoryConfig in schemas.py are covered
-            # Assuming debug_components from config.yaml's MemoryManagerConfig 
-            # is compatible with schemas.py's MemoryConfig's debug_components field.
+            # Assuming debug_components from config.yaml\\'s MemoryManagerConfig 
+            # is compatible with schemas.py\\'s MemoryConfig\\'s debug_components field.
             debug_components=memory_manager_config_data.debug_components 
         )
-        memory_manager = MemoryManager(config=core_memory_config)
+        memory_manager = EnhancedMemoryManager(config=core_memory_config) # Changed from MemoryManager
         await memory_manager.initialize_db()
         
         delegation_targets_map = {}
@@ -89,8 +90,9 @@ async def start_wits_cli(config: AppConfig):
                     logger.warning(f"Agent class not defined for agent profile: {agent_name}. Skipping initialization.")
                     continue
 
-                if agent_name == main_orchestrator_profile_name:
-                    logger.info(f"Profile for main orchestrator '{agent_name}' found. Will be initialized after delegates.")
+                # Skip main orchestrator and WCCA here, they are initialized separately
+                if agent_name == main_orchestrator_profile_name or agent_name == "wits_control_center":
+                    logger.info(f"Profile for '{agent_name}' found. Will be initialized separately.")
                     continue
 
                 try:
@@ -129,10 +131,10 @@ async def start_wits_cli(config: AppConfig):
                             agent_constructor_params['max_iterations'] = 5
                       # Handle WitsControlCenterAgent specific params
                     elif AgentClass.__name__ == "WitsControlCenterAgent":
+                        # This case should be avoided by the check at the beginning of the loop
+                        logger.warning(f"WitsControlCenterAgent '{agent_name}' encountered in delegate loop - should be initialized separately.")
                         agent_constructor_params['memory_manager'] = memory_manager
-                        # Remove max_iterations as WCCA doesn't use it
-                        agent_constructor_params.pop('max_iterations', None)
-                        # orchestrator_delegate will be set after main_orchestrator_instance is created
+                        agent_constructor_params.pop('max_iterations', None) # Remove max_iterations if present
 
                     else: # For other specialized agents
                         agent_constructor_params.pop('max_iterations', None) # Not typically used by non-orchestrators
@@ -199,42 +201,56 @@ async def start_wits_cli(config: AppConfig):
         # Initialize WitsControlCenterAgent
         wcca_profile_name = "wits_control_center"
         wcca_agent_profile = config.agent_profiles.get(wcca_profile_name)
+        wits_control_center_agent = None # Initialize to None
 
         if wcca_agent_profile and wcca_agent_profile.agent_class:
-            try:
-                module_name, class_name = wcca_agent_profile.agent_class.rsplit('.', 1)
-                WCCAClass = getattr(importlib.import_module(module_name), class_name)
+            if main_orchestrator_instance: # Ensure main_orchestrator_instance is available
+                try:
+                    module_name, class_name = wcca_agent_profile.agent_class.rsplit('.', 1)
+                    WCCAClass = getattr(importlib.import_module(module_name), class_name)
 
-                wcca_llm_model = wcca_agent_profile.llm_model_name or config.models.default
-                wcca_llm_temp = wcca_agent_profile.temperature if wcca_agent_profile.temperature is not None else config.default_temperature
-                if wcca_llm_temp is None:
-                    wcca_llm_temp = 0.7
+                    wcca_llm_model = wcca_agent_profile.llm_model_name or config.models.default
+                    wcca_llm_temp = wcca_agent_profile.temperature if wcca_agent_profile.temperature is not None else config.default_temperature
+                    if wcca_llm_temp is None: # Default if still None
+                        wcca_llm_temp = 0.7
 
-                wcca_llm_interface = LLMInterface(
-                    model_name=wcca_llm_model,
-                    temperature=float(wcca_llm_temp)
-                )
 
-                wcca_constructor_params = {
-                    'agent_name': wcca_profile_name,
-                    'config': config, # Pass the global AppConfig object to WCCA
-                    'llm_interface': wcca_llm_interface,
-                    'memory_manager': memory_manager,
-                    'orchestrator_delegate': main_orchestrator_instance
-                }
+                    wcca_llm_interface = LLMInterface(
+                        model_name=wcca_llm_model,
+                        temperature=float(wcca_llm_temp)
+                    )
 
-                wcca = WCCAClass(**wcca_constructor_params)
-                logger.info("WitsControlCenterAgent initialized for CLI.")
+                    wcca_constructor_params = {
+                        'agent_name': wcca_profile_name,
+                        'config': wcca_agent_profile, # Pass the specific agent profile
+                        'llm_interface': wcca_llm_interface,
+                        'memory_manager': memory_manager,
+                        'orchestrator_delegate': main_orchestrator_instance # Pass the initialized main orchestrator
+                    }
+                    
+                    # Remove max_iterations specifically for WCCA if it was added from agent_specific_params
+                    # or if the profile had it, as WCCA does not use it.
+                    wcca_constructor_params.pop('max_iterations', None)
 
-            except Exception as e:
-                logger.error(f"Failed to initialize WitsControlCenterAgent '{wcca_profile_name}': {e}", exc_info=True)
-                logger.critical(f"CRITICAL: WitsControlCenterAgent could not be initialized. WITS CLI cannot function.")
-                return
+                    if wcca_agent_profile.agent_specific_params:
+                         # Update params, but ensure max_iterations is not re-added if present in agent_specific_params
+                         specific_params = wcca_agent_profile.agent_specific_params.copy()
+                         specific_params.pop('max_iterations', None)
+                         wcca_constructor_params.update(specific_params)
+
+                    wits_control_center_agent = WCCAClass(**wcca_constructor_params)
+                    delegation_targets_map[wcca_profile_name] = wits_control_center_agent # Add WCCA to targets if needed elsewhere
+                    logger.info(f"WITS Control Center Agent ('{wcca_profile_name}') initialized successfully with class {class_name}.")
+
+                except Exception as e:
+                    logger.error(f"Failed to initialize WITS Control Center Agent ('{wcca_profile_name}'): {e}", exc_info=True)
+            else:
+                logger.error(f"Main orchestrator instance not available, cannot initialize WITS Control Center Agent ('{wcca_profile_name}').")
         else:
-            logger.error(f"Profile for WitsControlCenterAgent '{wcca_profile_name}' not found or agent_class missing in config.yaml.")
-            logger.critical(f"CRITICAL: WitsControlCenterAgent profile missing. WITS CLI cannot function.")
-            return
+            logger.error(f"Profile for WITS Control Center Agent ('{wcca_profile_name}') not found or agent_class missing in config.yaml.")
 
+
+        # Main interaction loop (simplified for CLI)
         logger.info(f"CLI Session ID: {current_session_id}")
 
         while True:
@@ -247,16 +263,21 @@ async def start_wits_cli(config: AppConfig):
             logger.info(f"CLI User Input for session '{current_session_id}': {raw_user_input}")
 
             try:
-                async for data_packet in wcca.run(raw_user_input, [], current_session_id):
-                    if data_packet.type == "info":
-                        logger.info(f"WCCA Info for session '{current_session_id}': {data_packet.content}")
-                        print(f"System: {data_packet.content}")
-                    elif data_packet.type == "error":
-                        logger.error(f"WCCA Error for session '{current_session_id}': {data_packet.content}")
-                        print(f"Error: {data_packet.content}")
-                    else:
-                        logger.debug(f"WCCA Stream '{data_packet.type}' for session '{current_session_id}': {data_packet.content}")
-                        print(data_packet.content)
+                # Ensure wits_control_center_agent is defined and used here
+                if 'wits_control_center_agent' in locals() and wits_control_center_agent is not None:
+                    async for data_packet in wits_control_center_agent.run(raw_user_input, [], current_session_id):
+                        if data_packet.type == "info":
+                            logger.info(f"WCCA Info for session '{current_session_id}': {data_packet.content}")
+                            print(f"System: {data_packet.content}")
+                        elif data_packet.type == "error":
+                            logger.error(f"WCCA Error for session '{current_session_id}': {data_packet.content}")
+                            print(f"Error: {data_packet.content}")
+                        else:
+                            logger.debug(f"WCCA Stream '{data_packet.type}' for session '{current_session_id}': {data_packet.content}")
+                            print(data_packet.content)
+                else:
+                    logger.error("WITS Control Center Agent not initialized. Cannot process input.")
+                    print("System Error: Control Center Agent not available.")
 
             except Exception as e:
                 logger.exception(f"An error occurred while processing input for session '{current_session_id}': {e}")
@@ -298,7 +319,8 @@ def main_entry():
             
         config = AppConfig(**config_data)
             
-        configure_console_logging()
+        # configure_console_logging() # REMOVED: This will be handled by setup_logging
+        setup_logging(config_data) # ADDED: Call setup_logging with the raw config_data
         logger.info("Starting WITS...")
         
         web_cfg = config.web_interface
