@@ -49,6 +49,17 @@ class DebugInfo(BaseModel):
     tokens_processed: Optional[int] = None  # How many tokens did we feed it? x.x
     tokens_generated: Optional[int] = None  # How many tokens did it spit out? =P
     error_message: Optional[str] = None  # Detailed oopsie report! \\o/
+    
+    # Fields for enhanced AI autonomy system
+    autonomy_level: Optional[int] = None  # How autonomous was this action? (0-5) 
+    self_modified: Optional[bool] = None  # Did the AI modify its own code? O.o
+    learning_source: Optional[str] = None  # Where did the AI learn this behavior?
+    tool_simulation: Optional[bool] = None  # Was this a simulated tool run?
+    mcp_tool_id: Optional[str] = None  # ID for dynamic MCP tools
+    agent_id: Optional[str] = None  # Which agent performed this action?
+    parent_agent_id: Optional[str] = None  # If created by another agent, which one?
+    code_safety_check: Optional[Dict[str, Any]] = None  # Results of safety checks for code mods
+    file_access_details: Optional[Dict[str, Any]] = None  # Details about file access operations
 
 class PerformanceMonitor:
     """Time to see how fast (or slow) things are! Ready, set, go! ^_^"""
@@ -345,4 +356,275 @@ def log_async_execution_time(logger: logging.Logger) -> Callable[[Callable[P, An
                     log_debug_info(logger, debug_info)
                     raise
             return awaitable_wrapper
+    return decorator
+
+class AutonomyMonitor:
+    """
+    Specialized monitor for tracking AI autonomy operations, learning events,
+    and safety-critical operations like self-modifications and file access.
+    
+    This class extends the standard performance monitoring with specialized
+    metrics and tracking capabilities for the enhanced autonomy system.
+    """
+    
+    def __init__(self, component_name: str, agent_id: Optional[str] = None):
+        self.name = component_name
+        self.agent_id = agent_id
+        self.start_time = time.time()
+        self.autonomy_level = 0
+        self.checkpoints: Dict[str, float] = {}
+        self.safety_checks: Dict[str, Any] = {}
+        self.learning_events: list[Dict[str, Any]] = []
+        self.tool_usage: list[Dict[str, Any]] = []
+        self.file_operations: list[Dict[str, Any]] = []
+        self.code_modifications: list[Dict[str, Any]] = []
+        self.logger = logging.getLogger(f'WITS.Autonomy.{component_name}')
+        
+    def set_autonomy_level(self, level: int) -> None:
+        """Set the autonomy level for this operation (0-5)."""
+        self.autonomy_level = max(0, min(5, level))
+        self.logger.debug(f"Autonomy level set to {level}")
+        
+    def record_learning_event(self, source: str, content_type: str, content_preview: str) -> None:
+        """Record a learning event where the AI acquired new knowledge."""
+        self.learning_events.append({
+            "timestamp": time.time(),
+            "source": source,
+            "content_type": content_type,
+            "content_preview": content_preview[:200] if content_preview else ""
+        })
+        self.logger.debug(f"Learning event recorded from {source}: {content_type}")
+        
+    def record_tool_usage(self, tool_id: str, is_mcp: bool, success: bool, error_msg: Optional[str] = None) -> None:
+        """Record usage of a tool, including MCP dynamic tools."""
+        self.tool_usage.append({
+            "timestamp": time.time(),
+            "tool_id": tool_id,
+            "is_mcp": is_mcp,
+            "success": success,
+            "error": error_msg
+        })
+        if success:
+            self.logger.debug(f"Tool usage: {tool_id} {'(MCP)' if is_mcp else ''} - Success")
+        else:
+            self.logger.warning(f"Tool usage: {tool_id} {'(MCP)' if is_mcp else ''} - Failed: {error_msg}")
+    
+    def record_file_operation(self, operation: str, file_path: str, success: bool, 
+                              security_cleared: bool, error_msg: Optional[str] = None) -> None:
+        """Record file access operation with security details."""
+        self.file_operations.append({
+            "timestamp": time.time(),
+            "operation": operation,
+            "file_path": file_path,
+            "success": success,
+            "security_cleared": security_cleared,
+            "error": error_msg
+        })
+        log_msg = (f"File {operation}: {file_path} - "
+                  f"{'Success' if success else 'Failed'} "
+                  f"{'(Security cleared)' if security_cleared else '(SECURITY BLOCKED)'}")
+        if success:
+            self.logger.debug(log_msg)
+        else:
+            self.logger.warning(f"{log_msg}: {error_msg}")
+    
+    def record_code_modification(self, file_path: str, modification_type: str, 
+                                safety_check_passed: bool, modification_size: int) -> None:
+        """Record code modification with safety check results."""
+        self.code_modifications.append({
+            "timestamp": time.time(),
+            "file_path": file_path,
+            "modification_type": modification_type,
+            "safety_check_passed": safety_check_passed,
+            "modification_size": modification_size
+        })
+        self.logger.debug(f"Code modification: {modification_type} to {file_path} - "
+                        f"Safety {'PASSED' if safety_check_passed else 'FAILED'}")
+    
+    def record_safety_check(self, check_type: str, passed: bool, details: Dict[str, Any]) -> None:
+        """Record results of a safety check."""
+        self.safety_checks[check_type] = {
+            "timestamp": time.time(),
+            "passed": passed,
+            "details": details
+        }
+        log_level = logging.DEBUG if passed else logging.WARNING
+        self.logger.log(log_level, f"Safety check ({check_type}): {'PASSED' if passed else 'FAILED'}")
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive metrics about this autonomy operation."""
+        total_time = (time.time() - self.start_time) * 1000  # ms
+        
+        metrics = {
+            "duration_ms": round(total_time, 2),
+            "autonomy_level": self.autonomy_level,
+            "agent_id": self.agent_id,
+            "component": self.name,
+            "checkpoints": {k: round(v*1000, 2) for k, v in self.checkpoints.items()},
+            "learning_events_count": len(self.learning_events),
+            "tool_usage_count": len(self.tool_usage),
+            "file_operations_count": len(self.file_operations),
+            "code_modifications_count": len(self.code_modifications),
+            "safety_checks": self.safety_checks,
+            # Include recent events (limited number for size control)
+            "recent_learning": self.learning_events[-5:] if self.learning_events else [],
+            "recent_tool_usage": self.tool_usage[-5:] if self.tool_usage else [],
+            "recent_file_ops": self.file_operations[-5:] if self.file_operations else [],
+            "recent_code_mods": self.code_modifications[-5:] if self.code_modifications else []
+        }
+        return metrics
+    
+    def log_to_debug_info(self) -> DebugInfo:
+        """Create a DebugInfo object from this monitor's state for logging."""
+        metrics = self.get_metrics()
+        
+        # Calculate success based on safety checks
+        safety_passed = all(check.get("passed", True) for check in self.safety_checks.values())
+        tool_success = all(tool.get("success", True) for tool in self.tool_usage)
+        file_success = all(op.get("success", True) for op in self.file_operations)
+        overall_success = safety_passed and tool_success and file_success
+        
+        # Format a summary of what happened
+        file_paths = [op.get("file_path", "") for op in self.file_operations]
+        tools_used = [tool.get("tool_id", "") for tool in self.tool_usage]
+        
+        # Create the debug info
+        return DebugInfo(
+            timestamp=datetime.now().isoformat(),
+            component=self.name,
+            action="autonomy_operation",
+            details={
+                "metrics": metrics,
+                "files_accessed": file_paths[:10],  # limit to 10 for readability
+                "tools_used": tools_used[:10]  # limit to 10 for readability
+            },
+            duration_ms=metrics["duration_ms"],
+            success=overall_success,
+            error=None if overall_success else "Safety checks failed or operation errors occurred",
+            # Autonomy-specific fields
+            autonomy_level=self.autonomy_level,
+            self_modified=len(self.code_modifications) > 0,
+            agent_id=self.agent_id,
+            code_safety_check={k: v["passed"] for k, v in self.safety_checks.items()},
+            file_access_details={"count": len(self.file_operations), "operations": [op["operation"] for op in self.file_operations][:5]}
+        )
+
+def log_autonomy_operation(logger: logging.Logger, component: str = "AutonomyOperation", agent_id: Optional[str] = None):
+    """
+    Decorator to log autonomy operations with comprehensive monitoring.
+    
+    Args:
+        logger: Logger instance to use for logging
+        component: Component name for the autonomy operation
+        agent_id: Optional ID of the agent performing the operation
+        
+    Usage:
+    @log_autonomy_operation(logger, "CodeModifier", "agent-1234")
+    def modify_code(...):
+        ...
+    """
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            # Create autonomy monitor
+            monitor = AutonomyMonitor(component, agent_id)
+            
+            # Extract autonomy level from kwargs if present
+            if 'autonomy_level' in kwargs and isinstance(kwargs['autonomy_level'], int):
+                monitor.set_autonomy_level(kwargs['autonomy_level'])
+            
+            # Add monitor to kwargs for use within the function
+            kwargs['_monitor'] = monitor
+            
+            try:
+                # Execute the function
+                result = func(*args, **kwargs)
+                
+                # Log the operation
+                debug_info = monitor.log_to_debug_info()
+                log_debug_info(logger, debug_info)
+                
+                return result
+                
+            except Exception as e:
+                # Record the error
+                execution_time = (time.time() - monitor.start_time) * 1000
+                debug_info = monitor.log_to_debug_info()
+                debug_info.success = False
+                debug_info.error = str(e)
+                debug_info.details["error_type"] = type(e).__name__
+                debug_info.details["traceback"] = traceback.format_exc()
+                log_debug_info(logger, debug_info)
+                raise
+        
+        return wrapper
+    return decorator
+
+def log_mcp_tool_execution(logger: logging.Logger):
+    """
+    Decorator specifically for MCP tool execution with enhanced monitoring.
+    
+    Usage:
+    @log_mcp_tool_execution(logger)
+    def execute_mcp_tool(...):
+        ...
+    """
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            start_time = time.time()
+            
+            # Extract tool info with explicit type handling
+            tool_id = "unknown-mcp-tool"
+            if 'tool_id' in kwargs:
+                if isinstance(kwargs['tool_id'], str):
+                    tool_id = kwargs['tool_id']
+                
+            try:
+                # Execute the MCP tool
+                result = func(*args, **kwargs)
+                execution_time = (time.time() - start_time) * 1000
+                
+                # Create debug info with MCP-specific details
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="MCPToolExecution",
+                    action=f"execute_{tool_id}",
+                    details={
+                        "tool_id": tool_id,
+                        "args_count": len(args),
+                        "kwargs_keys": list(kwargs.keys()),
+                        "result_preview": str(result)[:200] if result else None,
+                    },
+                    duration_ms=execution_time,
+                    success=True,
+                    # MCP-specific fields
+                    mcp_tool_id=tool_id
+                )
+                log_debug_info(logger, debug_info)
+                
+                return result
+                
+            except Exception as e:
+                execution_time = (time.time() - start_time) * 1000
+                debug_info = DebugInfo(
+                    timestamp=datetime.now().isoformat(),
+                    component="MCPToolExecution",
+                    action=f"execute_{tool_id}",
+                    details={
+                        "tool_id": tool_id,
+                        "args_count": len(args),
+                        "kwargs_keys": list(kwargs.keys()),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    },
+                    duration_ms=execution_time,
+                    success=False,
+                    error=str(e),
+                    mcp_tool_id=tool_id
+                )
+                log_debug_info(logger, debug_info)
+                raise
+        
+        return wrapper
     return decorator

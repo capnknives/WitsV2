@@ -26,6 +26,15 @@ debug_data_cache = {
         "agents": [],
         "last_updated": 0
     },
+    "autonomy": {
+        "operations": [],
+        "mcp_tools": [],
+        "code_modifications": [],
+        "file_operations": [],
+        "agent_interactions": [],
+        "safety_events": [],
+        "last_updated": 0
+    },
     "logs": {}  # Changed to an empty dict to support per-log-type caching
 }
 
@@ -182,7 +191,12 @@ def calculate_metrics():
         "llm_calls": 0,
         "tool_calls": 0,
         "avg_response_time": 0,
-        "memory_segments": 0
+        "memory_segments": 0,
+        "mcp_tools_count": 0,
+        "autonomy_level_avg": 0,
+        "code_modifications_count": 0,
+        "file_operations_count": 0,
+        "safety_events_count": 0
     }
     
     # Extract performance data for calculations
@@ -208,6 +222,13 @@ def calculate_metrics():
         if "segment_count" in log.get("details", {}):
             metrics["memory_segments"] = log["details"]["segment_count"]
             break
+            
+    # Extract autonomy metrics
+    try:
+        autonomy_data = extract_autonomy_data()
+        metrics = update_metrics_with_autonomy_data(metrics, autonomy_data)
+    except Exception as e:
+        print(f"Error updating metrics with autonomy data: {e}")
     
     return metrics
 
@@ -276,3 +297,269 @@ async def get_typed_logs(log_type: str):
         }
         
     return debug_data_cache["logs"][cache_key]
+
+@debug_router.get("/autonomy/operations", response_model=List[Dict[str, Any]])
+async def get_autonomy_operations():
+    """Get autonomy operations data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("operations", [])
+
+@debug_router.get("/autonomy/mcp_tools", response_model=List[Dict[str, Any]])
+async def get_autonomy_mcp_tools():
+    """Get autonomy MCP tools data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("mcp_tools", [])
+
+@debug_router.get("/autonomy/code_modifications", response_model=List[Dict[str, Any]])
+async def get_autonomy_code_modifications():
+    """Get autonomy code modifications data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("code_modifications", [])
+
+@debug_router.get("/autonomy/file_operations", response_model=List[Dict[str, Any]])
+async def get_autonomy_file_operations():
+    """Get autonomy file operations data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("file_operations", [])
+
+@debug_router.get("/autonomy/agent_interactions", response_model=List[Dict[str, Any]])
+async def get_autonomy_agent_interactions():
+    """Get autonomy agent interactions data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("agent_interactions", [])
+
+@debug_router.get("/autonomy/safety_events", response_model=List[Dict[str, Any]])
+async def get_autonomy_safety_events():
+    """Get autonomy safety events data."""
+    global debug_data_cache
+    current_time = time.time()
+    
+    # Initialize autonomy section if it doesn't exist
+    if "autonomy" not in debug_data_cache:
+        debug_data_cache["autonomy"] = {
+            "operations": [],
+            "mcp_tools": [],
+            "code_modifications": [],
+            "file_operations": [],
+            "agent_interactions": [],
+            "safety_events": [],
+            "last_updated": 0
+        }
+
+    # Check if autonomy data cache needs refresh
+    if (current_time - debug_data_cache["autonomy"].get("last_updated", 0)) > CACHE_EXPIRATION:
+        debug_data_cache["autonomy"] = extract_autonomy_data() 
+    
+    return debug_data_cache["autonomy"].get("safety_events", [])
+
+# Extract autonomy data from logs
+def extract_autonomy_data():
+    """Extract autonomy-related data from logs for monitoring."""
+    log_dir = os.path.join(os.getcwd(), "logs")
+    debug_file = os.path.join(log_dir, "wits_debug.log")
+    error_file = os.path.join(log_dir, "wits_error.log")
+    
+    # Initialize autonomy data structure
+    autonomy_data = {
+        "operations": [],
+        "mcp_tools": [],
+        "code_modifications": [],
+        "file_operations": [],
+        "agent_interactions": [],
+        "safety_events": [],
+        "last_updated": int(time.time())
+    }
+    
+    # List of files to check for autonomy events
+    log_files_to_check = []
+    if os.path.exists(debug_file):
+        log_files_to_check.append(debug_file)
+    if os.path.exists(error_file):
+        log_files_to_check.append(error_file)
+    
+    if not log_files_to_check:
+        return autonomy_data
+    
+    # Process the log files
+    for log_file_path in log_files_to_check:
+        try:
+            with open(log_file_path, 'r') as f:
+                for line in f.readlines()[-1000:]:  # Last 1000 entries
+                    try:
+                        # Look for autonomy-related log entries
+                        if "WITS.Autonomy" in line or "AutonomyOperation" in line or "MCPToolExecution" in line:
+                            # Extract timestamp
+                            parts = line.strip().split(' | ')
+                            if len(parts) < 3:
+                                continue
+                                
+                            timestamp_str = parts[0].strip()
+                            level = parts[1].strip()
+                            
+                            # Create base entry
+                            entry = {
+                                "timestamp": timestamp_str,
+                                "level": level,
+                                "details": ' | '.join(parts[2:])
+                            }
+                            
+                            # Categorize log entry based on content
+                            if "CodeModifier" in line or "code_modification" in line:
+                                autonomy_data["code_modifications"].append(entry)
+                            elif "MCPTool" in line or "mcp_tool" in line:
+                                autonomy_data["mcp_tools"].append(entry)
+                            elif "FileAccess" in line or "file_operation" in line:
+                                autonomy_data["file_operations"].append(entry)
+                            elif "Agent" in line and ("interaction" in line or "create" in line):
+                                autonomy_data["agent_interactions"].append(entry)
+                            elif "Safety" in line or "security" in line:
+                                autonomy_data["safety_events"].append(entry)
+                            else:
+                                # General autonomy operations
+                                autonomy_data["operations"].append(entry)
+                    except Exception as e:
+                        print(f"Error parsing autonomy log line: {e}")
+                        continue
+        except Exception as e:
+            print(f"Error reading log file {log_file_path}: {e}")
+            continue
+    
+    # Sort entries by timestamp (newest first) and limit entries
+    for category in autonomy_data:
+        if category != "last_updated":  # Skip the timestamp field
+            try:
+                autonomy_data[category].sort(key=lambda x: x["timestamp"], reverse=True)
+                autonomy_data[category] = autonomy_data[category][:50]  # Keep only the latest 50
+            except Exception as e:
+                print(f"Error sorting autonomy data for {category}: {e}")
+    
+    return autonomy_data
+
+def update_metrics_with_autonomy_data(metrics: Dict[str, Any], autonomy_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update metrics with autonomy-related metrics."""
+    # Count MCP tools used
+    metrics["mcp_tools_count"] = len(autonomy_data.get("mcp_tools", []))
+    
+    # Calculate average autonomy level
+    autonomy_levels = [
+        extract_autonomy_level(entry.get("details", "")) 
+        for entry in autonomy_data.get("operations", [])
+    ]
+    if autonomy_levels:
+        metrics["autonomy_level_avg"] = round(sum(autonomy_levels) / len(autonomy_levels), 1)
+    else:
+        metrics["autonomy_level_avg"] = 0
+        
+    # Add code modification count
+    metrics["code_modifications_count"] = len(autonomy_data.get("code_modifications", []))
+    
+    # Add file operations count
+    metrics["file_operations_count"] = len(autonomy_data.get("file_operations", []))
+    
+    # Add safety events count
+    metrics["safety_events_count"] = len(autonomy_data.get("safety_events", []))
+    
+    return metrics
+
+def extract_autonomy_level(details_str: str) -> int:
+    """Extract autonomy level from log entry details."""
+    try:
+        if "autonomy_level:" in details_str:
+            level_part = details_str.split("autonomy_level:")[1].strip().split()[0]
+            return int(level_part)
+        elif "level:" in details_str:
+            level_part = details_str.split("level:")[1].strip().split()[0]
+            return int(level_part)
+    except (ValueError, IndexError):
+        pass
+    return 0  # Default if cannot extract
